@@ -1,0 +1,11 @@
+[Unit]
+Description=Recolector de datos del Mediterráneo (NASA Giovanni + NOAA ERDDAP)
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=mediterraneo
+WorkingDirectory=/opt/mediterraneo
+EnvironmentFile=/etc/mediterraneo.env
+ExecStart=/opt/mediterraneo/.venv/bin/python recolector.py
+TimeoutStartSec=6h

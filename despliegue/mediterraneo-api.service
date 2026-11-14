@@ -1,0 +1,13 @@
+[Unit]
+Description=API web del estado del Mediterráneo
+After=network-online.target
+
+[Service]
+User=mediterraneo
+WorkingDirectory=/opt/mediterraneo
+EnvironmentFile=/etc/mediterraneo.env
+ExecStart=/opt/mediterraneo/.venv/bin/uvicorn api:app --host 127.0.0.1 --port 8000 --workers 2
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
