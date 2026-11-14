@@ -32,15 +32,35 @@ Regenerate the fake data: `pip install numpy scipy global-land-mask`, then
 
 ## What the site does
 
-- **Left panel:** region, period, the list of variables and a plain-language definition of the selected one.
+- **Left panel:** region, period and the variable list with a plain-language definition.
+  In "Stack by variable" the list becomes tick boxes: tick up to four variables to stack.
 - **Visualisation options:** Stack by time, Stack by variable, Trend map.
-- **Stacks:** four layers visible. Mouse wheel, arrow keys or the round buttons bring more.
-  - By time: one layer per year, newest on top, coloured by difference from that cell's own average.
-  - By variable: one layer per variable, coloured by trend direction.
-- **Trend map:** rate of change per decade; hatched where the trend is not significant.
-- **Right panel (opens and closes):** time series with fitted trend, rate per decade and a plain-language verdict.
-  Click a sea cell for that point; switch to "Whole region" for the area average.
-  With a point selected it also lists the trend of every variable at that point.
+- **Stacks:** four layers in focus, plus a grey layer above and below showing there is more.
+  Mouse wheel, arrow keys or the buttons under the view move through them with a smooth slide.
+  - By time: one layer per year, newest on top.
+  - By variable: one layer per ticked variable, coloured by trend direction.
+- **Opening a map:** click a layer and it turns to face you as a flat map. Click a point, or drag
+  a box to select an area. "Back to stack" (or Esc) returns. The up/down buttons step to the
+  next layer while the map stays open.
+- **Trend map:** the flat map of rate of change per decade for one variable, hatched where the
+  trend is not significant.
+- **Right panel (round handle on its edge opens and closes it):**
+  - One variable: time series, fitted trend, rate per decade and a plain-language verdict.
+  - Stack by variable: one small graph per stacked variable, for the same selection.
+  - A table of every variable's trend for the current selection.
+
+### Colours
+
+- Time stack: every layer uses the **same** colour range, so years can be compared. The reference
+  is the average of the whole sea over all years (default), so every point is coloured against the
+  same number. A switch under the view changes it to each place's own average over all years.
+- Variable stack and trend map: one fixed range per variable, because the units differ.
+
+### Where the statistics are computed
+
+- Per-cell and whole-region trends come from the Python pipeline (in the JSON files).
+- Area selections are averaged (area-weighted) and fitted **in the browser** with the same method:
+  least-squares slope and a two-sided t-test. See `ols()` in `app.js`.
 
 ## Data format
 

@@ -22,6 +22,7 @@
       </section>
       <section>
         <h2>Data to visualise</h2>
+        <p class="fact dim" id="var-hint">&nbsp;</p>
         <ul class="varlist" id="varlist"></ul>
       </section>
       <section>
@@ -40,17 +41,17 @@
         <button type="button" data-mode="vars" aria-pressed="false">Stack by variable</button>
         <button type="button" data-mode="trend" aria-pressed="false">Trend map</button>
       </span>
-      <span class="spacer"></span>
-      <button type="button" class="ghost" id="panel-toggle" aria-expanded="true" aria-controls="panel">Hide graph</button>
     </div>
     <div class="stage" id="stage">
       <canvas id="view" tabindex="0" aria-label="Main visualisation"></canvas>
-      <div class="scroller" id="scroller">
-        <button type="button" id="up" aria-label="Show layers above">&#9650;</button>
-        <span id="scroll-pos"></span>
-        <button type="button" id="down" aria-label="Show layers below">&#9660;</button>
-      </div>
       <p class="loading" id="loading">Loading data…</p>
+    </div>
+    <div class="stackbar" id="stackbar">
+      <button type="button" class="ghost" id="back" hidden>&larr; Back to stack</button>
+      <button type="button" class="round" id="up" aria-label="Previous layer">&#9650;</button>
+      <span id="scroll-pos"></span>
+      <button type="button" class="round" id="down" aria-label="Next layer">&#9660;</button>
+      <span class="fact dim" id="stack-hint"></span>
     </div>
     <div class="legend" id="legend"></div>
   </main>
@@ -58,20 +59,21 @@
   <aside class="panel" id="panel" aria-label="Graph">
     <div class="panel-head">
       <h2 id="panel-title">&nbsp;</h2>
-      <span class="seg small" id="scope">
-        <button type="button" data-scope="point" aria-pressed="false">This point</button>
-        <button type="button" data-scope="region" aria-pressed="true">Whole region</button>
-      </span>
+      <button type="button" class="ghost small" id="clear" hidden>Clear selection</button>
     </div>
     <p class="fact dim" id="panel-where">&nbsp;</p>
-    <canvas id="chart" aria-label="Time series with fitted trend"></canvas>
-    <p class="verdict" id="verdict">&nbsp;</p>
-    <p class="hint" id="hint">Click a point in the sea to drill a probe there. Click a layer to select it.</p>
-    <div id="allvars-wrap" hidden>
-      <h2>Every variable at this point</h2>
-      <table class="allvars"><thead><tr><th>Variable</th><th>Per decade</th><th>Significant</th></tr></thead><tbody id="allvars"></tbody></table>
+    <div id="single">
+      <canvas id="chart" aria-label="Time series with fitted trend"></canvas>
+      <p class="verdict" id="verdict">&nbsp;</p>
+    </div>
+    <div id="multi" hidden></div>
+    <div id="allvars-wrap">
+      <h2>Every variable, same selection</h2>
+      <table class="allvars"><thead><tr><th>Variable</th><th>Per decade</th><th>Signif.</th></tr></thead><tbody id="allvars"></tbody></table>
     </div>
   </aside>
+
+  <button type="button" id="panel-toggle" aria-expanded="true" aria-controls="panel" aria-label="Hide graph panel" title="Hide graph panel">&rsaquo;</button>
 </div>
 <div id="tip" role="status"></div>
 <script src="app.js"></script>
