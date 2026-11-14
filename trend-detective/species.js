@@ -18,9 +18,14 @@ var COMMON_NAMES = {   // the backend stores Spanish common names; the site is i
   "Eledone cirrhosa": "Horned octopus", "Illex coindetii": "Broadtail shortfin squid",
   "Todarodes sagittatus": "European flying squid"
 };
-// Map window: the whole ocean (the polar rows are cut, they have almost no data). The cell size
-// comes from the backend (paso_grados, 1° by default).
-var LON0 = -180, LON1 = 180, LAT0 = -78, LAT1 = 84, STEP = 1;
+// Map windows (cell edges). The backend computes the whole ocean; the view only chooses what is drawn.
+// k shrinks longitude (cos of the middle latitude) so shapes are not stretched. The polar rows of the
+// world are cut, they have almost no data. The cell size comes from the backend (paso_grados, 1° by default).
+var VIEWS = {
+  med:   { name: "Mediterranean Sea", lon0: -6, lon1: 37, lat0: 30, lat1: 46, k: Math.cos(38 * Math.PI / 180), lonStep: 5, latStep: 5 },
+  world: { name: "World ocean", lon0: -180, lon1: 180, lat0: -78, lat1: 84, k: 1, lonStep: 60, latStep: 30 }
+};
+var STEP = 1;
 
 var $ = function (id) { return document.getElementById(id); };
 function el(tag, cls, txt) { var e = document.createElement(tag); if (cls) e.className = cls; if (txt !== undefined) e.textContent = txt; return e; }
@@ -28,7 +33,7 @@ function css(name) { return getComputedStyle(document.documentElement).getProper
 function commonName(sp) { return COMMON_NAMES[sp.nombre] || sp.nombre_comun || ""; }
 function varName(v) { return VARIABLE_NAMES[v] || v; }
 
-var state = { page: "trends", species: null, year: null, data: null, map: null, list: [] };
+var state = { page: "trends", species: null, year: null, data: null, map: null, list: [], view: "med" };
 
 /* ---------------- DOM: page switch, sidebar, main view, panel ---------------- */
 var options = document.querySelector(".options");
@@ -42,13 +47,14 @@ options.insertBefore(pages, options.firstChild);
 var trendSide = document.querySelector(".side .side-body");
 var side = el("div", "side-body"); side.id = "sp-side"; side.hidden = true;
 side.innerHTML =
-  '<section><h2>Region</h2><p class="fact">World ocean</p><p class="fact dim" id="sp-period">&nbsp;</p></section>' +
+  '<section><h2>Region</h2><p class="fact" id="sp-region">&nbsp;</p>' +
+  '<select id="sp-view" class="sp-select" aria-label="Region shown on the map">' +
+  Object.keys(VIEWS).map(function (v) { return '<option value="' + v + '">' + VIEWS[v].name + '</option>'; }).join("") +
+  '</select><p class="fact dim" id="sp-period">&nbsp;</p></section>' +
   '<section><h2>Species</h2><p class="fact dim">Stored species. Cephalopods are always ready.</p><ul class="varlist" id="sp-list"></ul></section>' +
   '<section class="sp-search"><h2>Find another species</h2>' +
   '<input id="sp-find" list="sp-suggest" placeholder="Scientific name, e.g. Thunnus thynnus" autocomplete="off" aria-label="Scientific name">' +
   '<datalist id="sp-suggest"></datalist><p class="fact dim">Computed on first request, then stored.</p></section>' +
-  '<section class="sp-month"><h2>Year</h2><p class="fact" id="sp-year-name">&nbsp;</p>' +
-  '<input type="range" id="sp-year" min="1980" max="2025" step="1" aria-label="Year"></section>' +
   '<section><h2>What is this?</h2><p class="fact dim">Each sighting (OBIS, since 1980) is matched to the sea conditions of its place and year ' +
   '(monthly data averaged per year). Habitat suitability (0 to 1) says how close each place and year is to the conditions where the species has been seen. ' +
   'It is a statistical match, not proof of cause.</p></section>';
@@ -58,7 +64,11 @@ var trendRow = $("row");
 var row = el("div", "row"); row.id = "sp-row"; row.hidden = true;
 row.innerHTML =
   '<main class="main"><div class="legend" id="sp-legend"></div>' +
-  '<div class="stage"><canvas id="sp-map" aria-label="Habitat suitability map"></canvas><p class="loading" id="sp-status">Loading…</p></div></main>' +
+  '<div class="stage"><canvas id="sp-map" aria-label="Habitat suitability map"></canvas><p class="loading" id="sp-status">Loading…</p></div>' +
+  '<div class="stackbar"><button type="button" class="round" id="sp-prev" aria-label="Previous year">&#9664;</button>' +
+  '<select id="sp-year" class="sp-select" aria-label="Year"></select>' +
+  '<button type="button" class="round" id="sp-next" aria-label="Next year">&#9654;</button>' +
+  '<span class="fact dim">Point at the map to read a place.</span></div></main>' +
   '<aside class="panel" aria-label="Species details"><div class="sp-panel">' +
   '<div><div class="panel-head"><h2 id="sp-title">&nbsp;</h2></div><p class="fact dim" id="sp-sub">&nbsp;</p></div>' +
   '<section><h2>Favourable sea area by year</h2><div class="sp-bars" id="sp-bars"></div><div class="sp-years" id="sp-years"></div>' +
@@ -67,13 +77,13 @@ row.innerHTML =
   '<section><h2>Conditions where it is seen</h2><table class="allvars"><thead><tr><th>Variable</th><th>Typical range</th><th>Median</th></tr></thead><tbody id="sp-niche"></tbody></table>' +
   '<p class="note">Typical range: 5th to 95th percentile of the conditions at its sightings. ' +
   'Variables marked * cover every year and make the yearly suitability; the others start later (satellites) and only describe the niche.</p></section>' +
-  '<section><h2>Place</h2><p class="fact dim sp-cell" id="sp-cell">Point at the map to read a place.</p></section>' +
+  '<section><h2>Place</h2><p class="fact dim sp-cell" id="sp-cell">&nbsp;</p></section>' +
   '</div></aside>';
 trendRow.parentNode.appendChild(row);
 
 $("sp-legend").innerHTML = '<span>Habitat suitability: 0 <span class="ramp"></span> 1</span>' +
   '<span><span class="sp-dot"></span>sightings that year</span><span><span class="sp-dot faint"></span>other years</span>' +
-  '<span id="sp-legend-year"></span>';
+  '<span><span class="sw land"></span>land</span>';
 
 function setPage(p) {
   state.page = p;
@@ -115,8 +125,10 @@ function show(name) {
   return api("/especies/" + encodeURIComponent(name)).then(function (d) {
     if (state.species !== name) return;
     state.data = d; state.species = d.nombre;
-    var years = d.anios, slider = $("sp-year");
-    slider.min = years[0]; slider.max = years[years.length - 1];
+    var years = d.anios, seen = d.resumen.avistamientos_por_anio;
+    $("sp-year").innerHTML = years.slice().reverse().map(function (y) {
+      return '<option value="' + y + '">' + y + " · " + (seen[y] || 0) + " sightings</option>";
+    }).join("");
     if (!state.year || years.indexOf(state.year) < 0) state.year = years[years.length - 1];
     setYear(state.year, true);
     panel(); return loadList(d.nombre).then(loadMap);
@@ -147,9 +159,9 @@ function panel() {
   $("sp-sub").textContent = [commonName(d), d.registros_usados + " of " + d.registros + " sightings used",
     "updated " + new Date(d.calculado).toLocaleDateString()].filter(Boolean).join(" · ");
   $("sp-period").textContent = "Yearly results " + r.periodo[0] + " to " + r.periodo[1];
-  var t = r.tendencia_pp_por_decada;
-  $("sp-trend").textContent = t === null ? "" : "Trend: " + (t > 0 ? "+" : t < 0 ? "−" : "") + Math.abs(t).toFixed(1) +
-    " percentage points of favourable sea per decade (" + r.periodo[0] + "–" + r.periodo[1] + ", least-squares line).";
+  var t = r.tendencia_pp_por_decada, top = Math.max.apply(null, d.anios.map(function (y) { return r.superficie_favorable_pct[y] || 0; }));
+  $("sp-trend").textContent = "Share of the world ocean; the tallest bar is " + top.toFixed(1) + "%. " + (t === null ? "" : "Trend: " + (t > 0 ? "+" : t < 0 ? "−" : "") + Math.abs(t).toFixed(1) +
+    " percentage points per decade (" + r.periodo[0] + "–" + r.periodo[1] + ", least-squares line).");
 
   var lim = Object.keys(r.factores_limitantes_pct);
   $("sp-limits").innerHTML = lim.length ? lim.map(function (v) {
@@ -173,8 +185,9 @@ function bars() {
   if (!state.data) return;
   var pct = state.data.resumen.superficie_favorable_pct, years = state.data.anios;
   var box = $("sp-bars"); box.innerHTML = ""; box.style.gridTemplateColumns = "repeat(" + years.length + ",1fr)";
+  var top = Math.max.apply(null, years.map(function (y) { return pct[y] || 0; })) || 1;   // bars are relative to the best year
   years.forEach(function (y) {
-    var v = pct[y] || 0, b = el("div"); b.style.height = Math.max(2, v) + "%";
+    var v = pct[y] || 0, b = el("div"); b.style.height = Math.max(2, 100 * v / top) + "%";
     b.title = y + ": " + v + "% of the sea is favourable"; if (y === state.year) b.className = "on";
     b.addEventListener("click", function () { setYear(y); });
     box.appendChild(b);
@@ -183,9 +196,8 @@ function bars() {
 
 function setYear(y, quiet) {
   state.year = y; $("sp-year").value = y;
-  var seen = state.data && state.data.resumen.avistamientos_por_anio[y];
-  $("sp-year-name").textContent = y + (seen ? " · " + seen + " sightings" : "");
-  $("sp-legend-year").textContent = String(y);
+  var years = state.data ? state.data.anios : [y];
+  $("sp-prev").disabled = y <= years[0]; $("sp-next").disabled = y >= years[years.length - 1];
   if (!quiet) { bars(); if (state.species) loadMap(); }
 }
 
@@ -198,40 +210,47 @@ function draw() {
   if (!w || !h) return;
   canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
   var g = canvas.getContext("2d"); g.setTransform(dpr, 0, 0, dpr, 0, 0);
-  g.fillStyle = css("--land"); g.fillRect(0, 0, w, h);
 
-  // Equirectangular world map (plate carrée).
-  var k = 1, spanX = LON1 - LON0, spanY = LAT1 - LAT0;
-  var s = Math.min((w - 32) / spanX, (h - 32) / spanY), ox = (w - spanX * s) / 2, oy = (h - spanY * s) / 2;
-  geom = { s: s, k: k, ox: ox, oy: oy };
-  if (!state.map) return;
-
-  var mid = rgb(css("--mid")), hi = rgb(css("--neg")), cw = STEP * k * s, ch = STEP * s;
-  state.map.puntos.forEach(function (p) {
-    var t = Math.max(0, Math.min(1, p[2]));
-    g.fillStyle = "rgb(" + mid.map(function (c, i) { return Math.round(c + (hi[i] - c) * t); }).join(",") + ")";
-    g.fillRect(x(p[1]) - cw / 2, y(p[0]) - ch / 2, cw + 0.6, ch + 0.6);
-  });
-  // Sightings: other years small and faint, the chosen year on top.
-  var probe = css("--probe");
-  g.fillStyle = probe; g.globalAlpha = 0.35;
-  state.map.avistamientos.forEach(function (a) { if (!a[3]) { g.beginPath(); g.arc(x(a[1]), y(a[0]), 1.6, 0, 2 * Math.PI); g.fill(); } });
-  g.globalAlpha = 1;
-  state.map.avistamientos.forEach(function (a) {
-    if (a[3]) { g.beginPath(); g.arc(x(a[1]), y(a[0]), Math.min(6, 2.5 + Math.log10(a[3] + 1) * 2), 0, 2 * Math.PI); g.fill(); }
-  });
-  g.strokeStyle = css("--rule"); g.lineWidth = 1;
-  g.strokeRect(geom.ox, geom.oy, spanX * s, spanY * s);
+  var V = VIEWS[state.view], spanX = (V.lon1 - V.lon0) * V.k, spanY = V.lat1 - V.lat0;
+  var s = Math.min((w - 80) / spanX, (h - 80) / spanY), ox = (w - spanX * s) / 2, oy = (h - spanY * s) / 2;
+  geom = { s: s, k: V.k, ox: ox, oy: oy, lon0: V.lon0, lat1: V.lat1 };
+  var fw = spanX * s, fh = spanY * s;
+  g.fillStyle = css("--land"); g.fillRect(ox, oy, fw, fh);
+  g.save(); g.beginPath(); g.rect(ox, oy, fw, fh); g.clip();
+  if (state.map) {
+    var mid = rgb(css("--mid")), hi = rgb(css("--neg")), cw = STEP * V.k * s, ch = STEP * s;
+    state.map.puntos.forEach(function (p) {
+      if (p[0] < V.lat0 - STEP || p[0] > V.lat1 + STEP || p[1] < V.lon0 - STEP || p[1] > V.lon1 + STEP) return;
+      var t = Math.max(0, Math.min(1, p[2]));
+      g.fillStyle = "rgb(" + mid.map(function (c, i) { return Math.round(c + (hi[i] - c) * t); }).join(",") + ")";
+      g.fillRect(x(p[1]) - cw / 2, y(p[0]) - ch / 2, cw + 0.6, ch + 0.6);
+    });
+    // Sightings: other years small and faint, the chosen year on top.
+    g.fillStyle = css("--probe"); g.globalAlpha = 0.35;
+    state.map.avistamientos.forEach(function (a) { if (!a[3]) { g.beginPath(); g.arc(x(a[1]), y(a[0]), 1.6, 0, 2 * Math.PI); g.fill(); } });
+    g.globalAlpha = 1;
+    state.map.avistamientos.forEach(function (a) {
+      if (a[3]) { g.beginPath(); g.arc(x(a[1]), y(a[0]), Math.min(6, 2.5 + Math.log10(a[3] + 1) * 2), 0, 2 * Math.PI); g.fill(); }
+    });
+  }
+  g.restore();
+  g.strokeStyle = css("--ink-2"); g.lineWidth = 0.8; g.strokeRect(ox, oy, fw, fh);
+  g.fillStyle = css("--ink-2"); g.font = "10px " + css("--mono"); g.textBaseline = "middle";
+  var lon, lat, ns = function (v, a, b) { return Math.abs(v) + "°" + (v > 0 ? a : v < 0 ? b : ""); };
+  g.textAlign = "center";
+  for (lon = Math.ceil(V.lon0 / V.lonStep) * V.lonStep; lon <= V.lon1; lon += V.lonStep) g.fillText(ns(lon, "E", "W"), x(lon), oy + fh + 12);
+  g.textAlign = "right";
+  for (lat = Math.floor(V.lat1 / V.latStep) * V.latStep; lat >= V.lat0; lat -= V.latStep) g.fillText(ns(lat, "N", "S"), ox - 6, y(lat));
 }
-function x(lon) { return geom.ox + (lon - LON0) * geom.k * geom.s; }
-function y(lat) { return geom.oy + (LAT1 - lat) * geom.s; }
+function x(lon) { return geom.ox + (lon - geom.lon0) * geom.k * geom.s; }
+function y(lat) { return geom.oy + (geom.lat1 - lat) * geom.s; }
 function rgb(h) { h = h.replace("#", ""); if (h.length === 3) h = h.replace(/./g, "$&$&"); return [0, 2, 4].map(function (i) { return parseInt(h.substr(i, 2), 16); }); }
 
 canvas.addEventListener("mousemove", function (ev) {
   if (!state.map || !geom) return;
   var r = canvas.getBoundingClientRect();
-  var lon = LON0 + (ev.clientX - r.left - geom.ox) / (geom.k * geom.s);
-  var lat = LAT1 - (ev.clientY - r.top - geom.oy) / geom.s;
+  var lon = geom.lon0 + (ev.clientX - r.left - geom.ox) / (geom.k * geom.s);
+  var lat = geom.lat1 - (ev.clientY - r.top - geom.oy) / geom.s;
   // Centre of the cell under the pointer, written like the backend writes it.
   var cLat = Math.floor(lat / STEP) * STEP + STEP / 2, cLon = Math.floor(lon / STEP) * STEP + STEP / 2;
   var key = cLat + "," + cLon, p = state.map.celda[key], seen = state.map.vistos[key];
@@ -256,7 +275,12 @@ $("sp-find").addEventListener("input", function (ev) {
 $("sp-find").addEventListener("change", function (ev) {
   var q = ev.target.value.trim(); if (q.split(/\s+/).length >= 2) show(q);
 });
-$("sp-year").addEventListener("input", function (ev) { setYear(Number(ev.target.value)); });
+$("sp-year").addEventListener("change", function (ev) { setYear(Number(ev.target.value)); });
+$("sp-prev").addEventListener("click", function () { setYear(state.year - 1); });
+$("sp-next").addEventListener("click", function () { setYear(state.year + 1); });
+function setView(v) { state.view = v; $("sp-view").value = v; $("sp-region").textContent = VIEWS[v].name; draw(); }
+$("sp-view").addEventListener("change", function (ev) { setView(ev.target.value); });
+setView(state.view);
 
 function start() {
   loadList().then(function (list) {
