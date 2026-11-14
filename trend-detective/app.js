@@ -43,10 +43,11 @@ function load() {
     });
     return Promise.all(m.variables.map(function (v) {
       return getJSON(DATA_DIR + v.file).then(function (d) {
-        var mean = new Float64Array(nOcean), n = d.values.length, sum = 0, y, k;
-        for (y = 0; y < n; y++) for (k = 0; k < nOcean; k++) { mean[k] += d.values[y][k] / n; sum += d.values[y][k]; }
-        d.cellMean = mean; d.grand = sum / (n * nOcean);
-        var sample = []; for (y = 0; y < n; y++) for (k = y % 5; k < nOcean; k += 5) sample.push(Math.abs(d.values[y][k] - d.grand));
+        var mean = new Float64Array(nOcean), cnt = new Float64Array(nOcean), n = d.values.length, sum = 0, tot = 0, y, k, x;
+        for (y = 0; y < n; y++) for (k = 0; k < nOcean; k++) { x = d.values[y][k]; if (x === null) continue; mean[k] += x; cnt[k]++; sum += x; tot++; }
+        for (k = 0; k < nOcean; k++) mean[k] = cnt[k] ? mean[k] / cnt[k] : NaN;
+        d.cellMean = mean; d.grand = sum / (tot || 1);
+        var sample = []; for (y = 0; y < n; y++) for (k = y % 5; k < nOcean; k += 5) if (d.values[y][k] !== null) sample.push(Math.abs(d.values[y][k] - d.grand));
         sample.sort(function (a, b) { return a - b; }); d.spatialScale = sample[Math.floor(sample.length * 0.98)] || 1;
         d.info = v; vars[v.id] = d;
       });
@@ -87,19 +88,24 @@ function ibeta(a, b, x) {
   var bt = Math.exp(lgamma(a + b) - lgamma(a) - lgamma(b) + a * Math.log(x) + b * Math.log(1 - x));
   return x < (a + 1) / (a + b + 2) ? bt * betacf(a, b, x) / a : 1 - bt * betacf(b, a, 1 - x) / b;
 }
-function ols(v) {                            // least-squares slope per decade + two-sided t-test p
-  var n = v.length, mid = (n - 1) / 2, mean = 0, k, sxx = 0, sxy = 0, sse = 0;
-  for (k = 0; k < n; k++) mean += v[k] / n;
-  for (k = 0; k < n; k++) { sxx += (k - mid) * (k - mid); sxy += (k - mid) * (v[k] - mean); }
-  var b = sxy / sxx; for (k = 0; k < n; k++) { var e = v[k] - mean - b * (k - mid); sse += e * e; }
+function has(x) { return x !== null && x !== undefined && isFinite(x); }   // missing years are null in the data
+function ols(v) {                            // least-squares slope per decade + two-sided t-test p, skipping missing years
+  var ks = [], k, n, mid = 0, mean = 0, sxx = 0, sxy = 0, sse = 0;
+  for (k = 0; k < v.length; k++) if (has(v[k])) { ks.push(k); mid += k; mean += v[k]; }
+  n = ks.length; if (n < 3) return { slope: NaN, p: 1, mid: NaN, mean: NaN };
+  mid /= n; mean /= n;
+  ks.forEach(function (k) { sxx += (k - mid) * (k - mid); sxy += (k - mid) * (v[k] - mean); });
+  var b = sxy / sxx; ks.forEach(function (k) { var e = v[k] - mean - b * (k - mid); sse += e * e; });
   var t = b / Math.sqrt(sse / (n - 2) / sxx), df = n - 2;
-  return { slope: b * 10, p: isFinite(t) ? ibeta(df / 2, 0.5, df / (df + t * t)) : 1 };
+  return { slope: b * 10, p: isFinite(t) ? ibeta(df / 2, 0.5, df / (df + t * t)) : (sse === 0 ? 0 : 1), mid: mid, mean: mean };
 }
-function detrend(v, slopePerDecade) { var mid = (v.length - 1) / 2; return v.map(function (x, k) { return x - slopePerDecade / 10 * (k - mid); }); }
-function pearson(a, b) {
-  var n = a.length, ma = 0, mb = 0, k, sab = 0, saa = 0, sbb = 0;
-  for (k = 0; k < n; k++) { ma += a[k] / n; mb += b[k] / n; }
-  for (k = 0; k < n; k++) { sab += (a[k] - ma) * (b[k] - mb); saa += (a[k] - ma) * (a[k] - ma); sbb += (b[k] - mb) * (b[k] - mb); }
+function detrend(v, slopePerDecade) { var mid = (v.length - 1) / 2; return v.map(function (x, k) { return has(x) ? x - slopePerDecade / 10 * (k - mid) : null; }); }
+function pearson(a, b) {                     // over the years both series have
+  var ks = [], ma = 0, mb = 0, k, sab = 0, saa = 0, sbb = 0;
+  for (k = 0; k < a.length; k++) if (has(a[k]) && has(b[k])) { ks.push(k); ma += a[k]; mb += b[k]; }
+  if (ks.length < 3) return NaN;
+  ma /= ks.length; mb /= ks.length;
+  ks.forEach(function (k) { sab += (a[k] - ma) * (b[k] - mb); saa += (a[k] - ma) * (a[k] - ma); sbb += (b[k] - mb) * (b[k] - mb); });
   return saa && sbb ? sab / Math.sqrt(saa * sbb) : 0;
 }
 
@@ -115,7 +121,7 @@ function diverge(t) {
   return [m[0] + (p[0] - m[0]) * w, m[1] + (p[1] - m[1]) * w, m[2] + (p[2] - m[2]) * w];
 }
 function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
-function num(v, d, signed) { return (v < 0 ? "−" : (signed ? "+" : "")) + Math.abs(v).toFixed(d); }
+function num(v, d, signed) { if (!has(v)) return "–"; return (v < 0 ? "−" : (signed ? "+" : "")) + Math.abs(v).toFixed(d); }
 function pText(p) { return p < 0.001 ? "p < 0.001" : "p = " + p.toFixed(3); }
 function unit(v) { return v.unit ? " " + v.unit : ""; }
 function deg(v, pos, neg, d) { return Math.abs(v).toFixed(d === undefined ? 1 : d) + "°" + (v >= 0 ? pos : neg); }
@@ -155,17 +161,18 @@ function slots() {
 function layerValue(layer, k) {             // normalised colour value for ocean cell k
   if (layer.year !== undefined) {
     var d = vars[state.varId], v = d.values[yearIndex(layer.year)][k];
+    if (v === null) return NaN;
     return state.baseline === "cell" ? (v - d.cellMean[k]) / d.scale.anomaly : (v - d.grand) / d.spatialScale;
   }
-  var dv = vars[layer.varId]; return dv.trend.slope_per_decade[k] / dv.scale.slope;
+  var dv = vars[layer.varId], sl = dv.trend.slope_per_decade[k]; return sl === null ? NaN : sl / dv.scale.slope;
 }
 function layerImage(layer, grey) {          // 1 pixel per grid cell, cached; grey = ghost version
   var key = layer.key + "|" + (layer.year !== undefined ? state.varId + state.baseline : "") + "|" + C.mid + (grey ? "|g" : "");
   if (imgCache[key]) return imgCache[key];
   var cv = document.createElement("canvas"); cv.width = nx; cv.height = ny;
-  var g = cv.getContext("2d"), im = g.createImageData(nx, ny), land = rgb(C.land);
+  var g = cv.getContext("2d"), im = g.createImageData(nx, ny), land = rgb(C.land), nodata = rgb(C.rule);
   for (var f = 0; f < nx * ny; f++) {
-    var k = cellOf[f], c = k < 0 ? land : diverge(layerValue(layer, k)), o = f * 4;
+    var k = cellOf[f], lv = k < 0 ? 0 : layerValue(layer, k), c = k < 0 ? land : (isNaN(lv) ? nodata : diverge(lv)), o = f * 4;
     if (grey) { var l = 0.3 * c[0] + 0.59 * c[1] + 0.11 * c[2]; c = [l, l, l]; }
     im.data[o] = c[0]; im.data[o + 1] = c[1]; im.data[o + 2] = c[2]; im.data[o + 3] = k < 0 ? 150 : 255;
   }
@@ -190,10 +197,14 @@ function seriesFor(varId) {                 // {v: yearly values, slope per deca
   var out;
   if (s.type === "point") out = { v: d.values.map(function (row) { return row[s.cell]; }), slope: d.trend.slope_per_decade[s.cell], p: d.trend.p[s.cell] };
   else if (s.type === "area") {
-    var wsum = 0, v = d.values.map(function (row) { var a = 0; for (var q = 0; q < s.cells.length; q++) a += row[s.cells[q]] * weights[s.cells[q]]; return a; });
-    s.cells.forEach(function (k) { wsum += weights[k]; }); v = v.map(function (a) { return a / wsum; });
+    var v = d.values.map(function (row) {
+      var a = 0, wsum = 0; for (var q = 0; q < s.cells.length; q++) { var x = row[s.cells[q]]; if (x !== null) { a += x * weights[s.cells[q]]; wsum += weights[s.cells[q]]; } }
+      return wsum ? a / wsum : null;
+    });
     var fit = ols(v); out = { v: v, slope: fit.slope, p: fit.p };
   } else out = { v: d.regional.mean, slope: d.regional.slope_per_decade, p: d.regional.p };
+  if (!has(out.slope)) out.slope = NaN;      // too few years for a trend: never "significant"
+  if (!has(out.p)) out.p = 1;
   seriesCache[key] = out; return out;
 }
 function selText() {
@@ -288,7 +299,7 @@ function drawFlat(g, M, layer, w, h) {       // front-facing map, clipped to a f
   blit(g, M, layerImage(layer, false), 1);
   if (layer.varId !== undefined) {
     var d = vars[layer.varId]; g.fillStyle = hatchPattern(g);
-    for (k = 0; k < nOcean; k++) if (d.trend.p[k] >= ALPHA) { var fl = meta.ocean_index[k], cx = x0 + (fl % nx) * sc, cy = y0 + Math.floor(fl / nx) * sc;
+    for (k = 0; k < nOcean; k++) if (d.trend.p[k] === null || d.trend.p[k] >= ALPHA) { var fl = meta.ocean_index[k], cx = x0 + (fl % nx) * sc, cy = y0 + Math.floor(fl / nx) * sc;
       if (cx + sc < fx || cx > fx + fw || cy + sc < fy || cy > fy + fh) continue; g.fillRect(cx, cy, sc + 0.5, sc + 0.5); }
   }
   drawSelection(g, M, 1);
@@ -336,17 +347,18 @@ function tick(now) {
 /* ---------------- graphs ---------------- */
 function drawSeries(cv, s, info, yi, compact) {
   var f = fitCanvas(cv), g = f.g, yrs = meta.years, n = yrs.length; if (f.w < 60) return;
-  var L = 50, R = 8, T = compact ? 6 : 12, B = compact ? 16 : 24, lo = Math.min.apply(null, s.v), hi = Math.max.apply(null, s.v), padY = (hi - lo) * 0.12 || 1;
+  var L = 50, R = 8, T = compact ? 6 : 12, B = compact ? 16 : 24, pv = s.v.filter(has), lo = pv.length ? Math.min.apply(null, pv) : 0, hi = pv.length ? Math.max.apply(null, pv) : 1, padY = (hi - lo) * 0.12 || 1;
   lo -= padY; hi += padY;
   var X = function (k) { return L + (f.w - L - R) * k / (n - 1); }, Y = function (v) { return T + (f.h - T - B) * (hi - v) / (hi - lo); };
   var rows = compact ? 2 : 3;
   for (var q = 0; q <= rows; q++) { var val = lo + (hi - lo) * q / rows; g.beginPath(); g.moveTo(L, Y(val)); g.lineTo(f.w - R, Y(val)); g.strokeStyle = C.rule; g.lineWidth = 0.8; g.stroke(); text(g, num(val, Math.min(info.decimals, 3)), L - 6, Y(val), { align: "right", size: 10 }); }
   [0, Math.floor((n - 1) / 2), n - 1].forEach(function (k) { text(g, String(yrs[k]), X(k), f.h - 7, { align: k === 0 ? "left" : (k === n - 1 ? "right" : "center"), size: 10 }); });
   if (yi >= 0) { g.beginPath(); g.moveTo(X(yi), T); g.lineTo(X(yi), f.h - B); g.strokeStyle = C["ink-2"]; g.lineWidth = 1; g.setLineDash([2, 3]); g.stroke(); g.setLineDash([]); }
-  g.beginPath(); s.v.forEach(function (v, k) { if (k) g.lineTo(X(k), Y(v)); else g.moveTo(X(k), Y(v)); }); g.strokeStyle = C.ink; g.lineWidth = compact ? 1.5 : 2; g.lineJoin = "round"; g.stroke();
-  s.v.forEach(function (v, k) { g.beginPath(); g.arc(X(k), Y(v), k === yi ? 5 : (compact ? 1.8 : 2.5), 0, 7); g.fillStyle = C.ink; g.fill(); if (k === yi) { g.strokeStyle = C.sheet; g.lineWidth = 2; g.stroke(); } });
-  var mean = s.v.reduce(function (a, b) { return a + b; }, 0) / n, perYear = s.slope / 10, mid = (n - 1) / 2;
-  g.beginPath(); g.moveTo(X(0), Y(mean - perYear * mid)); g.lineTo(X(n - 1), Y(mean + perYear * mid)); g.strokeStyle = C.probe; g.lineWidth = 2; g.setLineDash([6, 4]); g.stroke(); g.setLineDash([]);
+  g.beginPath(); s.v.forEach(function (v, k) { if (!has(v)) return; if (k && has(s.v[k - 1])) g.lineTo(X(k), Y(v)); else g.moveTo(X(k), Y(v)); }); g.strokeStyle = C.ink; g.lineWidth = compact ? 1.5 : 2; g.lineJoin = "round"; g.stroke();
+  s.v.forEach(function (v, k) { if (!has(v)) return; g.beginPath(); g.arc(X(k), Y(v), k === yi ? 5 : (compact ? 1.8 : 2.5), 0, 7); g.fillStyle = C.ink; g.fill(); if (k === yi) { g.strokeStyle = C.sheet; g.lineWidth = 2; g.stroke(); } });
+  var fit = ols(s.v), perYear = s.slope / 10;
+  if (!has(perYear) || !has(fit.mean)) return;
+  g.beginPath(); g.moveTo(X(0), Y(fit.mean - perYear * fit.mid)); g.lineTo(X(n - 1), Y(fit.mean + perYear * (n - 1 - fit.mid))); g.strokeStyle = C.probe; g.lineWidth = 2; g.setLineDash([6, 4]); g.stroke(); g.setLineDash([]);
 }
 function miniGraph(parent, id, detail) {     // title + small graph (+ numbers line when detail is true)
   var d = vars[id], s = seriesFor(id), div = el("div", "mini"), cv = document.createElement("canvas");
@@ -452,7 +464,7 @@ function updateLegend() {
       "<span>Average of: <span class=\"seg small\" id=\"baseline\"><button type=\"button\" data-b=\"all\" aria-pressed=\"" + !own + "\">whole sea, all years</button><button type=\"button\" data-b=\"cell\" aria-pressed=\"" + own + "\">each place, all years</button></span></span>");
   } else parts.push(ramp("falling", "rising"), state.mode === "trend" ? "<span>range ±" + d.scale.slope + unit(info) + " per decade</span>" : "<span>one fixed range per variable (units differ)</span>");
   if (fl && fl.varId !== undefined && isFlat()) parts.push("<span><span class=\"sw hatch\"></span>not significant (p ≥ " + ALPHA + ")</span>");
-  parts.push("<span><span class=\"sw land\"></span>land</span>", "<span><span class=\"sw probe\"></span>selection</span>");
+  parts.push("<span><span class=\"sw land\"></span>land</span>", "<span><span class=\"sw nodata\"></span>no data</span>", "<span><span class=\"sw probe\"></span>selection</span>");
   node.innerHTML = parts.join("");
   var bl = $("baseline"); if (bl) bl.querySelectorAll("button").forEach(function (b) { b.addEventListener("click", function () { state.baseline = b.dataset.b; render(); }); });
 }
@@ -591,7 +603,7 @@ canvas.addEventListener("pointermove", function (e) {
   var s;
   if (h.cell < 0) s = h.layer.label + (h.flat < 0 ? "" : " · land");
   else if (h.layer.year !== undefined) { var d = vars[state.varId]; s = h.layer.label + " · " + cellLonLat(h.flat) + " · " + num(d.values[yearIndex(h.layer.year)][h.cell], d.info.decimals) + unit(d.info); }
-  else { var dv = vars[h.layer.varId]; s = dv.info.name + " · " + cellLonLat(h.flat) + " · " + num(dv.trend.slope_per_decade[h.cell], dv.info.decimals + 1, true) + unit(dv.info) + " per decade, " + (dv.trend.p[h.cell] < ALPHA ? "significant" : "not significant"); }
+  else { var dv = vars[h.layer.varId]; s = dv.info.name + " · " + cellLonLat(h.flat) + " · " + num(dv.trend.slope_per_decade[h.cell], dv.info.decimals + 1, true) + unit(dv.info) + " per decade, " + (dv.trend.p[h.cell] === null ? "too few years for a trend" : dv.trend.p[h.cell] < ALPHA ? "significant" : "not significant"); }
   tip.textContent = s; tip.style.left = Math.min(e.clientX, window.innerWidth - 400) + "px"; tip.style.top = e.clientY + "px"; tip.style.opacity = 1;
 });
 canvas.addEventListener("pointerup", function (e) {

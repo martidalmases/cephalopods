@@ -88,6 +88,7 @@ button:focus-visible,canvas:focus-visible{outline:2px solid var(--probe);outline
 .ramp{display:inline-block;width:110px;height:10px;border-radius:2px;background:linear-gradient(90deg,var(--neg),var(--mid),var(--pos));vertical-align:middle;margin:0 6px}
 .sw{display:inline-block;width:14px;height:14px;vertical-align:-2px;margin-right:6px;border:1px solid var(--rule)}
 .sw.land{background:var(--land)}
+.sw.nodata{background:var(--rule)}
 .sw.hatch{background:repeating-linear-gradient(135deg,transparent 0 3px,var(--ink) 3px 4px)}
 .sw.probe{background:var(--probe);border-color:var(--probe);border-radius:50%}
 
