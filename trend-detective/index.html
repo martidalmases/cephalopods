@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Trend Detective Concept</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app" id="app">
+
+  <aside class="side" aria-label="Data">
+    <div class="logo"><span class="logo-box">logo</span><span class="logo-name">Trend Detective</span></div>
+    <div class="side-body">
+      <p class="flag" id="synthetic-flag" hidden>Synthetic data. Not NASA measurements.</p>
+      <section>
+        <h2>Region</h2>
+        <p class="fact" id="region-name">&nbsp;</p>
+        <p class="fact dim" id="period">&nbsp;</p>
+      </section>
+      <section>
+        <h2>Data to visualise</h2>
+        <ul class="varlist" id="varlist"></ul>
+      </section>
+      <section>
+        <h2>What is this?</h2>
+        <p id="definition" class="definition">&nbsp;</p>
+        <p class="fact dim" id="source"></p>
+      </section>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="options" role="group" aria-label="Visualisation options">
+      <span class="options-label">Visualisation</span>
+      <span class="seg" id="modes">
+        <button type="button" data-mode="time" aria-pressed="true">Stack by time</button>
+        <button type="button" data-mode="vars" aria-pressed="false">Stack by variable</button>
+        <button type="button" data-mode="trend" aria-pressed="false">Trend map</button>
+      </span>
+      <span class="spacer"></span>
+      <button type="button" class="ghost" id="panel-toggle" aria-expanded="true" aria-controls="panel">Hide graph</button>
+    </div>
+    <div class="stage" id="stage">
+      <canvas id="view" tabindex="0" aria-label="Main visualisation"></canvas>
+      <div class="scroller" id="scroller">
+        <button type="button" id="up" aria-label="Show layers above">&#9650;</button>
+        <span id="scroll-pos"></span>
+        <button type="button" id="down" aria-label="Show layers below">&#9660;</button>
+      </div>
+      <p class="loading" id="loading">Loading data…</p>
+    </div>
+    <div class="legend" id="legend"></div>
+  </main>
+
+  <aside class="panel" id="panel" aria-label="Graph">
+    <div class="panel-head">
+      <h2 id="panel-title">&nbsp;</h2>
+      <span class="seg small" id="scope">
+        <button type="button" data-scope="point" aria-pressed="false">This point</button>
+        <button type="button" data-scope="region" aria-pressed="true">Whole region</button>
+      </span>
+    </div>
+    <p class="fact dim" id="panel-where">&nbsp;</p>
+    <canvas id="chart" aria-label="Time series with fitted trend"></canvas>
+    <p class="verdict" id="verdict">&nbsp;</p>
+    <p class="hint" id="hint">Click a point in the sea to drill a probe there. Click a layer to select it.</p>
+    <div id="allvars-wrap" hidden>
+      <h2>Every variable at this point</h2>
+      <table class="allvars"><thead><tr><th>Variable</th><th>Per decade</th><th>Significant</th></tr></thead><tbody id="allvars"></tbody></table>
+    </div>
+  </aside>
+</div>
+<div id="tip" role="status"></div>
+<script src="app.js"></script>
+</body>
+</html>
