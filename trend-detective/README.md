@@ -23,6 +23,7 @@ the JSON files that way.
 | File | Role |
 |---|---|
 | `index.html`, `style.css`, `app.js` | The website. Plain HTML/CSS/JS, no build step, no dependencies. |
+| `species.js`, `species.css` | The Species page (habitat suitability per species). Self-contained; it calls the backend at `/api/` (`backend/api.py`), which nginx forwards (`backend/despliegue/trend.cooking.nginx`). Without the backend the Trends page still works. |
 | `data/meta.json` | Region, grid, years, list of variables. |
 | `data/<id>.json` | One file per variable: yearly values, trend, significance. |
 | `pipeline/fetch_real_data.py` | Downloads the real data and writes everything in `data/`. |
