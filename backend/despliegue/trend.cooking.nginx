@@ -1,0 +1,18 @@
+# nginx site for trend.cooking: /etc/nginx/sites-available/trend.cooking
+# Static site (trend-detective/) plus the backend API for the Species page.
+# HTTPS is added on the server by: certbot --nginx --redirect -d trend.cooking -d www.trend.cooking
+server {
+    listen 80;
+    listen [::]:80;
+    server_name trend.cooking www.trend.cooking;
+    root /var/www/trend-detective;
+    index index.html;
+    location /api/ {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 120s;   # a new species takes about 15 s to compute the first time
+    }
+    location / { try_files $uri $uri/ =404; }
+}

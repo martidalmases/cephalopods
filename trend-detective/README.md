@@ -1,9 +1,16 @@
 # Trend Detective: website concept
 
 Concept site for the NASA Space Apps 2026 challenge "Be An Earth System Trend
-Detective!". It currently runs on **synthetic data**. The site only reads the
-JSON files in `data/`, so real data can replace the fake data without touching
+Detective!". It runs on **real NASA and NOAA data** for 2003–2025 (see "Real data").
+The site only reads JSON files in this format, so the data can be refreshed without touching
 the website code.
+
+**Where the files come from.** By default the site reads them from the backend
+(`/api/trends/<set>/`, written by `backend/exportar_trends.py` after every harvest): monthly NASA
+data since 1980, for the Mediterranean (1° cells) or the world ocean (2° cells). The «Region»
+picker switches sets (`?datos=mundo-1980`). `?datos=ficheros` reads the static files in `data/`
+instead (Mediterranean, 2003–2025, 0.5° cells, written by `pipeline/fetch_real_data.py`). Serving
+the folder with `python3 -m http.server` has no backend, so use `?datos=ficheros` there.
 
 Code, synthetic data and this document were generated with AI assistance, from
 the team's layout sketch and visualisation choices.
@@ -23,9 +30,11 @@ the JSON files that way.
 | File | Role |
 |---|---|
 | `index.html`, `style.css`, `app.js` | The website. Plain HTML/CSS/JS, no build step, no dependencies. |
+| `species.js`, `species.css` | The Species page (habitat suitability per species). Self-contained; it calls the backend at `/api/` (`backend/api.py`), which nginx forwards (`backend/despliegue/trend.cooking.nginx`). Without the backend the Trends page still works. |
 | `data/meta.json` | Region, grid, years, list of variables. |
 | `data/<id>.json` | One file per variable: yearly values, trend, significance. |
-| `pipeline/make_fake_data.py` | Writes everything in `data/`. Replace its `fake_field()` with real data. |
+| `pipeline/fetch_real_data.py` | Downloads the real data and writes everything in `data/`. |
+| `pipeline/make_fake_data.py` | Offline fallback: writes synthetic data in the same format. |
 
 Regenerate the fake data: `pip install numpy scipy global-land-mask`, then
 `python3 pipeline/make_fake_data.py`.
@@ -121,22 +130,41 @@ The maps slide away and the graph panel takes the space. For the current selecti
 | `regional.slope_per_decade`, `regional.p` | number | Trend of that average |
 | `scale.anomaly`, `scale.slope` | number | Value mapped to full colour (98th percentile of the absolute anomaly / slope) |
 
-No missing values are supported yet inside `values`: a cell is either in `ocean_index` with a full
-series or left out.
+Missing values are `null` (in `values`, `trend`, `regional`). The site skips them in averages, fits,
+correlations and charts, and draws them as "no data".
 
-## Plugging in real data
+## Real data
 
-1. In `make_fake_data.py`, replace `fake_field(var, mask, rng)` with a function returning an array
-   of shape `(n_years, n_ocean_cells)` on the same grid (regrid and average months to years first).
-2. Keep `trend_stats()` and `write_dataset()` as they are, or swap `trend_stats()` for a
-   Mann-Kendall test and Sen slope; the site only needs a slope and a p-value.
-3. Update each variable's `unit`, `decimals`, `definition` and `source`.
-4. To change region or resolution, change `LON0`, `LAT0`, `D`, `NX`, `NY` and the mask function.
+`pipeline/fetch_real_data.py` downloads **monthly** fields for the whole Mediterranean, averages
+them into yearly values on the backend's 0.5° grid (86 × 33 cells, `backend/almacen.py`), fits the
+trends and writes `data/`.
+
+```
+pip install numpy scipy requests
+EARTHDATA_TOKEN=... python3 pipeline/fetch_real_data.py      # about 30 min, writes ./data
+python3 pipeline/fetch_real_data.py --only chl nflh --out /tmp/data
+python3 pipeline/fetch_real_data.py --selftest
+```
+
+| Variables | Source | Years |
+|---|---|---|
+| Sea surface temperature, sea-air temperature difference | NASA MERRA-2 monthly `M2TMNXSLV` (TS, T2M) | 2003–2025 |
+| Aerosol optical depth | MERRA-2 `M2TMNXAER` (TOTEXTTAU) | 2003–2025 |
+| Wind speed, evaporation, precipitation, latent and sensible heat flux | MERRA-2 `M2TMNXFLX` | 2003–2025 |
+| Chlorophyll-a, fluorescence line height | NASA MODIS Aqua monthly, R2022 science quality, gaps filled with the NRT version (NOAA CoastWatch ERDDAP) | 2003–2025 |
+
+- MERRA-2 is read through NASA's OPeNDAP service, which needs a NASA Earthdata token with the
+  **"NASA GESDISC DATA ARCHIVE"** application approved in the Earthdata profile. NOAA needs no login.
+- A year counts only with at least 10 monthly values; a trend only with at least 8 yearly values.
+  Missing values are `null` in the JSON and shown as "no data" on the site.
+- Sea cells: inside the backend's Mediterranean cut-out and seen at least once by an ocean satellite.
 
 ## Known limits of the concept
 
 - Yearly values only. Monthly data would need the seasonal cycle removed first.
+- MERRA-2 is a reanalysis (a model constrained by observations), not a direct measurement.
+- The MODIS fluorescence decline is partly sensor ageing, not only a change in the sea.
+- Pixels are thinned to about 0.5° rather than averaged, as in the backend; coastal cells can be noisy.
 - The trend test is ordinary least squares with a t-test. It does not correct for autocorrelation
   or for testing thousands of cells at once.
 - Colours use one diverging blue/red scale for every variable.
-- The logo and project name are placeholders.

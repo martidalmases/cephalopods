@@ -278,10 +278,10 @@ function start() {
     sel.innerHTML = sets.map(function (d) {
       return '<option value="' + d.id + '">' + d.region + ", " + d.desde + "–" + d.hasta + " (" + d.variables.length +
              " variables, " + d.cell_deg + "° cells)</option>";
-    }).join("") + '<option value="sintetico">Synthetic demo data (2003–2025)</option>';
-    sel.value = current;
+    }).join("") + '<option value="ficheros">Mediterranean Sea, 2003–2025 (static files in data/, 0.5° cells)</option>';
+    sel.value = current === "sintetico" ? "ficheros" : current;
   }).catch(function () {
-    sel.innerHTML = '<option value="sintetico">Synthetic demo data</option>'; sel.value = "sintetico";
+    sel.innerHTML = '<option value="ficheros">Mediterranean Sea, 2003–2025 (static files in data/)</option>'; sel.value = "ficheros";
   });
   sel.addEventListener("change", function () {
     var q = new URLSearchParams(location.search); q.set("datos", sel.value);
