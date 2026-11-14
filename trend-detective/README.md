@@ -144,7 +144,7 @@ python3 pipeline/fetch_real_data.py --selftest
 | Aerosol optical depth | MERRA-2 `M2TMNXAER` (TOTEXTTAU) | 2003–2025 |
 | Wind speed, evaporation, precipitation, latent and sensible heat flux | MERRA-2 `M2TMNXFLX` | 2003–2025 |
 | Chlorophyll-a, fluorescence line height | NASA MODIS Aqua monthly, R2022 science quality, gaps filled with the NRT version (NOAA CoastWatch ERDDAP) | 2003–2025 |
-| Sea surface salinity | ESA SMOS 3-day composites averaged to months (NOAA CoastWatch ERDDAP) | 2011–2025 |
+| Sea surface salinity | NASA SMAP daily (every third day) averaged to months (NOAA CoastWatch ERDDAP) | 2016–2022, no trend |
 
 - MERRA-2 is read through NASA's OPeNDAP service, which needs a NASA Earthdata token with the
   **"NASA GESDISC DATA ARCHIVE"** application approved in the Earthdata profile. NOAA needs no login.
@@ -157,7 +157,8 @@ python3 pipeline/fetch_real_data.py --selftest
 - Yearly values only. Monthly data would need the seasonal cycle removed first.
 - MERRA-2 is a reanalysis (a model constrained by observations), not a direct measurement.
 - The MODIS fluorescence decline is partly sensor ageing, not only a change in the sea.
-- Salinity covers 15 years only, so its trends are less certain.
+- Salinity covers 2016–2022 only: too short for a trend (the site says so). ESA SMOS (2010+) has almost no
+  valid Mediterranean pixels, and SMAP values from 2023 on drop by 2–4 PSU after a product change.
 - Pixels are thinned to about 0.5° rather than averaged, as in the backend; coastal cells can be noisy.
 - The trend test is ordinary least squares with a t-test. It does not correct for autocorrelation
   or for testing thousands of cells at once.

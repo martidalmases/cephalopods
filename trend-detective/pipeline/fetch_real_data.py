@@ -70,10 +70,11 @@ VARIABLES = [
          erddap=[(CW_PFEG, "erdMH1cflhmday_R2022SQ", "nflh", 12, [], "2003-01", "2025-12"),
                  (CW_PFEG, "erdMH1cflhmday_R2022NRT", "nflh", 12, [], "2022-03", "2025-12")]),
     dict(id="sss", name="Sea surface salinity", unit="PSU", decimals=2,
-         definition="How salty the top layer of the sea is. Satellites only measure it since 2015.",
-         source="NASA SMAP daily, every third day averaged to months (NOAA CoastWatch ERDDAP), from 2016",
+         definition="How salty the top layer of the sea is. Satellite record 2016-2022 only: too short for a trend.",
+         source="NASA SMAP daily, every third day averaged to months (NOAA CoastWatch ERDDAP), 2016-2022",
          # SMOS (2010+) was tried: almost no valid Mediterranean pixels (radio interference), biased low.
-         erddap=[(CW_NOAA, "noaacwSMAPsssDaily", "sss", 2, ["(0.0)"], "2016-01", "2025-12", 3)]),
+         # SMAP from 2023 on: values drop 2-4 PSU and coverage jumps (product change), so it is cut at 2022.
+         erddap=[(CW_NOAA, "noaacwSMAPsssDaily", "sss", 2, ["(0.0)"], "2016-01", "2022-12", 3)]),
     dict(id="aod", name="Aerosol optical depth", unit="", decimals=3,
          definition="How hazy the air is from dust, smoke and pollution. 0 is perfectly clear.",
          source="NASA MERRA-2 monthly (M2TMNXAER, TOTEXTTAU)",

@@ -215,6 +215,7 @@ function selText() {
 }
 function selShort() { return state.sel.type === "point" ? "at point" : state.sel.type === "area" ? "area average" : "sea average"; }
 function direction(s, d) {                   // plain word for the table: negligible slopes read as "No change"
+  if (!has(s.slope)) return "Too few years";
   if (Math.abs(s.slope) < 0.1 * d.scale.slope) return "No change";
   return s.slope > 0 ? "↑ Higher" : "↓ Lower";
 }
@@ -410,7 +411,7 @@ function renderAnalysis() {
   meta.variables.forEach(function (v) {
     var s = seriesFor(v.id), tr = el("tr", state.shown.indexOf(v.id) >= 0 ? "on" : "");
     tr.appendChild(el("td", "", v.name)); tr.appendChild(el("td", "num", num(s.slope, v.decimals + 1, true) + unit(v)));
-    tr.appendChild(el("td", "num", s.p < 0.001 ? "< 0.001" : s.p.toFixed(3))); tr.appendChild(el("td", "", direction(s, vars[v.id]))); tr.appendChild(el("td", "", s.p < ALPHA ? "Yes" : "No"));
+    tr.appendChild(el("td", "num", !has(s.slope) ? "–" : s.p < 0.001 ? "< 0.001" : s.p.toFixed(3))); tr.appendChild(el("td", "", direction(s, vars[v.id]))); tr.appendChild(el("td", "", s.p < ALPHA ? "Yes" : "No"));
     tr.addEventListener("click", function () { pickVar(v.id); }); tb.appendChild(tr);
   });
   tbl.appendChild(tb); var w1 = el("div", "tablewrap"); w1.appendChild(tbl); right.appendChild(w1);
