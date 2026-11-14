@@ -15,13 +15,11 @@ Endpoints:
 from __future__ import annotations
 
 from datetime import date, timedelta
-from statistics import mean
-
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
 import bd
-from datos_mediterraneo import VARIABLES
+from datos_mediterraneo import VARIABLES, media_serie
 from recolector import VARIABLES_RECOLECTADAS
 
 app = FastAPI(title="Estado del Mediterráneo", version="1.0")
@@ -74,7 +72,7 @@ def datos(lat: float = Query(..., ge=-90, le=90), lon: float = Query(..., ge=-18
                     (p["id"], v, desde.isoformat(), hasta.isoformat())).fetchall()
                 entrada["serie"] = [{"fecha": f["fecha"], "valor": f["valor"]} for f in filas]
                 if filas:
-                    entrada["media"] = round(mean(f["valor"] for f in filas), 6)
+                    entrada["media"] = media_serie(v, [f["valor"] for f in filas])
                     entrada["ultimo"] = entrada["serie"][-1]
             resultado[v] = entrada
     finally:

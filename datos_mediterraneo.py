@@ -23,8 +23,9 @@ import json
 import math
 import os
 import sys
+import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from statistics import mean
@@ -122,9 +123,101 @@ VARIABLES = {
              "desde": "1980-01-01", "hasta": None},
         ],
     },
+
+    # Intercambio océano-atmósfera (MERRA-2). La API de Giovanni no ofrece el
+    # mensual M2TMNXFLX; se usa el horario M2T1NXFLX y se promedia por día.
+    "evaporacion": {
+        "nombre": "Evaporación desde la superficie - MERRA-2",
+        "unidades": "mm día-1",
+        "fuentes": [
+            {"tipo": "giovanni", "dataset": "M2T1NXFLX_5_12_4_EVAP",
+             "desde": "1980-01-01", "hasta": None,
+             "convertir": lambda e: e * 86400},  # kg m-2 s-1 -> mm/día
+        ],
+    },
+    "calor_latente": {
+        "nombre": "Flujo de calor latente (positivo: el mar pierde calor) - MERRA-2",
+        "unidades": "W m-2",
+        "fuentes": [
+            {"tipo": "giovanni", "dataset": "M2T1NXFLX_5_12_4_EFLUX",
+             "desde": "1980-01-01", "hasta": None},
+        ],
+    },
+    "calor_sensible": {
+        "nombre": "Flujo de calor sensible (positivo: el mar pierde calor) - MERRA-2",
+        "unidades": "W m-2",
+        "fuentes": [
+            {"tipo": "giovanni", "dataset": "M2T1NXFLX_5_12_4_HFLUX",
+             "desde": "1980-01-01", "hasta": None},
+        ],
+    },
+    "viento_velocidad": {
+        "nombre": "Velocidad del viento en superficie - MERRA-2",
+        "unidades": "m s-1",
+        "fuentes": [
+            {"tipo": "giovanni", "dataset": "M2T1NXFLX_5_12_4_SPEED",
+             "desde": "1980-01-01", "hasta": None},
+        ],
+    },
+    # Variables derivadas: se descargan varios datasets de Giovanni, se promedian por
+    # día y `combinar` calcula el valor diario a partir de ellos.
+    "viento_direccion": {
+        "nombre": "Dirección del viento en el nivel más bajo (de dónde sopla) - MERRA-2",
+        "unidades": "grados (0 = N, 90 = E)",
+        "circular": True,
+        "fuentes": [
+            {"tipo": "giovanni", "dataset": "M2T1NXFLX_5_12_4_ULML + M2T1NXFLX_5_12_4_VLML",
+             "componentes": {"u": "M2T1NXFLX_5_12_4_ULML", "v": "M2T1NXFLX_5_12_4_VLML"},
+             # Con u y v medios del día sale la dirección del viento resultante.
+             "combinar": lambda c: (270 - math.degrees(math.atan2(c["v"], c["u"]))) % 360,
+             "desde": "1980-01-01", "hasta": None},
+        ],
+    },
+    "dif_temp_mar_aire": {
+        "nombre": "Diferencia de temperatura mar-aire (superficie - aire a 2 m) - MERRA-2",
+        "unidades": "°C",
+        "fuentes": [
+            {"tipo": "giovanni", "dataset": "M2T1NXSLV_5_12_4_TS - M2T1NXSLV_5_12_4_T2M",
+             "componentes": {"ts": "M2T1NXSLV_5_12_4_TS", "t2m": "M2T1NXSLV_5_12_4_T2M"},
+             "combinar": lambda c: c["ts"] - c["t2m"],
+             "desde": "1980-01-01", "hasta": None},
+        ],
+    },
+    "dif_humedad_mar_aire": {
+        "nombre": "Diferencia de humedad específica mar-aire (qsat(TS) - q del nivel más bajo) - MERRA-2",
+        "unidades": "g kg-1",
+        "fuentes": [
+            {"tipo": "giovanni", "dataset": "qsat(M2T1NXSLV_5_12_4_TS) - M2I1NXLFO_5_12_4_QLML",
+             "componentes": {"ts": "M2T1NXSLV_5_12_4_TS", "q": "M2I1NXLFO_5_12_4_QLML"},
+             "combinar": lambda c: (_humedad_saturacion_mar(c["ts"]) - c["q"]) * 1000,
+             "desde": "1980-01-01", "hasta": None},
+        ],
+    },
 }
 
-VARIABLES_POR_DEFECTO = ["temperatura", "salinidad", "fitoplancton", "fluorescencia", "no2", "aerosoles"]
+VARIABLES_POR_DEFECTO = ["temperatura", "salinidad", "fitoplancton", "fluorescencia", "no2", "aerosoles",
+                         "evaporacion", "calor_latente", "calor_sensible", "viento_velocidad",
+                         "viento_direccion", "dif_temp_mar_aire", "dif_humedad_mar_aire"]
+
+
+def _humedad_saturacion_mar(t_kelvin: float, presion_hpa: float = 1013.25) -> float:
+    """
+    Humedad específica de saturación (kg/kg) sobre agua de mar a la temperatura dada.
+    Fórmula de Bolton (1980) con el factor 0,98 por la salinidad. Se usa presión
+    estándar: con la presión real el resultado cambia menos de un 2 %.
+    """
+    t = t_kelvin - 273.15
+    e = 0.98 * 6.112 * math.exp(17.67 * t / (t + 243.5))  # hPa
+    return 0.622 * e / (presion_hpa - 0.378 * e)
+
+
+def media_serie(variable: str, valores: list[float]) -> float:
+    """Media de una serie; las direcciones (grados) se promedian como vectores."""
+    if VARIABLES[variable].get("circular"):
+        s = sum(math.sin(math.radians(v)) for v in valores)
+        c = sum(math.cos(math.radians(v)) for v in valores)
+        return round(math.degrees(math.atan2(s, c)), 6) % 360
+    return round(mean(valores), 6)
 
 
 class ErrorDatos(Exception):
@@ -173,12 +266,53 @@ def _diario(serie: list[tuple[str, float]]) -> list[dict]:
 
 # --------------------------------------------------------------------------- fuentes
 
+_memo_giovanni: dict[tuple, Future] = {}
+_memo_cerrojo = threading.Lock()
+
+
 def _consultar_giovanni(fuente: dict, lat: float, lon: float, inicio: date, fin: date,
+                        token: str | None) -> list[tuple[str, float]]:
+    """Serie de una fuente de Giovanni, simple o derivada de varios datasets."""
+    if "componentes" not in fuente:
+        return _serie_giovanni(fuente["dataset"], lat, lon, inicio, fin, token)
+
+    # Derivada: media diaria de cada componente y combinación de los días comunes.
+    diarias = {nombre: {d["fecha"]: d["valor"] for d in _diario(_serie_giovanni(ds, lat, lon, inicio, fin, token))}
+               for nombre, ds in fuente["componentes"].items()}
+    dias = sorted(set.intersection(*(set(d) for d in diarias.values())))
+    return [(f"{dia}T12:00:00", fuente["combinar"]({n: d[dia] for n, d in diarias.items()})) for dia in dias]
+
+
+def _serie_giovanni(dataset: str, lat: float, lon: float, inicio: date, fin: date,
+                    token: str | None) -> list[tuple[str, float]]:
+    """
+    Descarga un dataset una sola vez por proceso: varias variables comparten
+    datasets (TS se usa en tres) y se piden a la vez desde distintos hilos.
+    """
+    clave = (dataset, round(lat, 4), round(lon, 4), inicio, fin)
+    with _memo_cerrojo:
+        futuro = _memo_giovanni.get(clave)
+        propio = futuro is None
+        if propio:
+            if len(_memo_giovanni) > 5000:
+                _memo_giovanni.clear()
+            futuro = _memo_giovanni[clave] = Future()
+    if propio:
+        try:
+            futuro.set_result(_descargar_giovanni(dataset, lat, lon, inicio, fin, token))
+        except Exception as e:
+            with _memo_cerrojo:
+                _memo_giovanni.pop(clave, None)  # un error no se memoriza
+            futuro.set_exception(e)
+    return futuro.result()
+
+
+def _descargar_giovanni(dataset: str, lat: float, lon: float, inicio: date, fin: date,
                         token: str | None) -> list[tuple[str, float]]:
     if not token:
         raise ErrorDatos("Falta token de Earthdata (define EARTHDATA_TOKEN)")
     params = {
-        "data": fuente["dataset"],
+        "data": dataset,
         "location": f"[{lat:.4f},{lon:.4f}]",
         "time": f"{inicio}T00:00:00/{fin}T23:59:59",
     }
@@ -276,7 +410,7 @@ def obtener_variable(variable: str, lat: float, lon: float, fecha_inicio: str | 
             serie = [(t, convertir(v)) for t, v in serie]
         resultado["serie"] = _diario(serie)
         if resultado["serie"]:
-            resultado["media"] = round(mean(p["valor"] for p in resultado["serie"]), 6)
+            resultado["media"] = media_serie(variable, [p["valor"] for p in resultado["serie"]])
             resultado["ultimo"] = resultado["serie"][-1]
     except (ErrorDatos, requests.RequestException, ValueError, KeyError) as e:
         resultado["error"] = str(e)
@@ -298,8 +432,8 @@ def obtener_datos_mediterraneo(lat: float, lon: float,
                                solo_mediterraneo: bool = True) -> dict:
     """
     Devuelve un diccionario serializable a JSON con las series diarias de
-    temperatura, salinidad, fitoplancton, fluorescencia, NO2 y aerosoles
-    (o las indicadas en `variables`) para la coordenada dada.
+    las variables de `VARIABLES_POR_DEFECTO` (o las indicadas en `variables`)
+    para la coordenada dada.
 
     Si no se indican fechas se usan los 30 días que terminan hace 60 días
     (MERRA-2 y OMI se publican con varias semanas de retraso).
@@ -320,7 +454,8 @@ def obtener_datos_mediterraneo(lat: float, lon: float,
     token = _token_earthdata(token)
 
     # Las peticiones son independientes y lentas: se lanzan en paralelo.
-    with ThreadPoolExecutor(max_workers=len(variables)) as pool:
+    # Máximo 6 a la vez para no saturar Giovanni (una variable derivada hace varias peticiones).
+    with ThreadPoolExecutor(max_workers=min(6, len(variables))) as pool:
         futuros = {v: pool.submit(obtener_variable, v, lat, lon, inicio, fin, token) for v in variables}
         datos = {v: f.result() for v, f in futuros.items()}
 
@@ -415,7 +550,7 @@ def main() -> None:
         else:
             estado = f"media={v['media']:.4g} {v['unidades']}  ({len(v['serie'])} días)"
         tiempo = "caché" if v.get("cache") else f"{v.get('segundos', 0):.1f}s"
-        print(f"{clave:14} {tiempo:>6} [{v['dataset']}] {estado}", file=sys.stderr)
+        print(f"{clave:21} {tiempo:>6} [{v['dataset']}] {estado}", file=sys.stderr)
 
     print(json.dumps(datos, ensure_ascii=False, indent=2))
 

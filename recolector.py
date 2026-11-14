@@ -5,7 +5,7 @@ un temporizador de systemd o cron; sólo descarga lo que falta.
 
   * Variables de ERDDAP (salinidad, clorofila, fluorescencia): una petición por
     variable y mes cubre todo el Mediterráneo con una rejilla de 0,5°.
-  * Variables de Giovanni (temperatura, NO2, aerosoles): la API sólo admite series
+  * Variables de Giovanni (temperatura, NO2, aerosoles, flujos y viento de MERRA-2): la API sólo admite series
     en un punto, así que se consulta una rejilla más gruesa (1°, ~250 puntos).
     MERRA-2 y OMI se publican con retraso; el recolector pregunta a CMR cuál es
     el último día disponible y no pide más allá.
@@ -28,12 +28,12 @@ from datetime import date, datetime, timedelta
 import requests
 
 import bd
-from datos_mediterraneo import (TIMEOUT_ERDDAP, VARIABLES, ErrorDatos, _a_fecha,
+from datos_mediterraneo import (TIMEOUT_ERDDAP, VARIABLES, VARIABLES_POR_DEFECTO, ErrorDatos, _a_fecha,
                                 _consultar_giovanni, _diario, _elegir_fuente, _token_earthdata)
 
 log = logging.getLogger("recolector")
 
-VARIABLES_RECOLECTADAS = ["temperatura", "salinidad", "fitoplancton", "fluorescencia", "no2", "aerosoles"]
+VARIABLES_RECOLECTADAS = VARIABLES_POR_DEFECTO
 DIAS_HISTORICO = 365           # primera carga si la BD está vacía y no se indica --desde
 SOLAPE_DIAS = 16               # se vuelven a pedir los últimos días (compuestos de 8 días, reprocesados NRT)
 TROZO_DIAS = 31                # días por petición de ERDDAP (~5 MB de JSON)
@@ -50,14 +50,21 @@ REJILLA_ERDDAP = {
 }
 
 # Colección de CMR de cada variable de Giovanni (para saber el último día publicado).
+# Los IDs de MERRA-2 ("M2T1NXFLX_5_12_4_EVAP") se deducen solos; el resto, aquí.
 COLECCION_CMR = {
-    "M2T1NXSLV_5_12_4_TS": ("M2T1NXSLV", "5.12.4"),
-    "M2T1NXAER_5_12_4_TOTEXTTAU": ("M2T1NXAER", "5.12.4"),
-    "M2T1NXAER_5_12_4_DUEXTTAU": ("M2T1NXAER", "5.12.4"),
     "OMNO2d_003_ColumnAmountNO2TropCloudScreened": ("OMNO2d", "003"),
     "OCO2_GEOS_L3CO2_DAY_10r_XCO2": ("OCO2_GEOS_L3CO2_DAY", "10r"),
     "NOBM_DAY_R2017_tot": ("NOBM_DAY", "R2017"),
 }
+
+
+def _coleccion_cmr(dataset: str) -> tuple[str, str] | None:
+    if dataset in COLECCION_CMR:
+        return COLECCION_CMR[dataset]
+    partes = dataset.split("_")
+    if dataset.startswith("M2") and len(partes) > 4:
+        return partes[0], ".".join(partes[1:4])
+    return None
 
 
 def _get(url: str, intentos: int = 3, **kwargs) -> requests.Response:
@@ -115,7 +122,7 @@ def recolectar_erddap(con, variable: str, fuente: dict, desde: date, hasta: date
             lote.append((la, lo, instante[:10], convertir(valor) if convertir else valor))
         _guardar(con, variable, lote)
         total += len(lote)
-        log.info("%-13s %s..%s  %6d valores", variable, inicio, fin, len(lote))
+        log.info("%-20s %s..%s  %6d valores", variable, inicio, fin, len(lote))
         inicio = fin + timedelta(days=1)
     return total
 
@@ -135,15 +142,21 @@ def _guardar(con, variable: str, lote: list[tuple[float, float, str, float]]) ->
 
 # --------------------------------------------------------------------------- Giovanni
 
-def _ultima_fecha_cmr(dataset: str) -> date | None:
-    if dataset not in COLECCION_CMR:
-        return None
-    nombre, version = COLECCION_CMR[dataset]
-    r = _get("https://cmr.earthdata.nasa.gov/search/granules.json", timeout=60,
-             params={"short_name": nombre, "version": version, "provider": "GES_DISC",
-                     "sort_key": "-start_date", "page_size": 1})
-    entradas = r.json().get("feed", {}).get("entry", [])
-    return _a_fecha(entradas[0]["time_end"][:10]) if entradas else None
+def _ultima_fecha_cmr(fuente: dict) -> date | None:
+    """Último día publicado; en una variable derivada, el del componente más atrasado."""
+    fechas = []
+    for dataset in fuente.get("componentes", {"_": fuente["dataset"]}).values():
+        coleccion = _coleccion_cmr(dataset)
+        if coleccion is None:
+            continue
+        nombre, version = coleccion
+        r = _get("https://cmr.earthdata.nasa.gov/search/granules.json", timeout=60,
+                 params={"short_name": nombre, "version": version, "provider": "GES_DISC",
+                         "sort_key": "-start_date", "page_size": 1})
+        entradas = r.json().get("feed", {}).get("entry", [])
+        if entradas:
+            fechas.append(_a_fecha(entradas[0]["time_end"][:10]))
+    return min(fechas) if fechas else None
 
 
 def recolectar_giovanni(con, variable: str, fuente: dict, desde: date, hasta: date,
@@ -167,7 +180,7 @@ def recolectar_giovanni(con, variable: str, fuente: dict, desde: date, hasta: da
                 inicio = min(desde, _a_fecha(primera))
         if inicio <= hasta:
             tareas.append((p, inicio))
-    log.info("%-13s %d puntos por consultar en Giovanni (hasta %s)", variable, len(tareas), hasta)
+    log.info("%-20s %d puntos por consultar en Giovanni (hasta %s)", variable, len(tareas), hasta)
 
     convertir = fuente.get("convertir")
     total = errores = 0
@@ -180,7 +193,7 @@ def recolectar_giovanni(con, variable: str, fuente: dict, desde: date, hasta: da
                 serie = futuro.result()
             except (ErrorDatos, requests.RequestException) as e:
                 errores += 1
-                log.warning("%-13s (%s, %s): %s", variable, p["lat"], p["lon"], e)
+                log.warning("%-20s (%s, %s): %s", variable, p["lat"], p["lon"], e)
                 continue
             if convertir:
                 serie = [(t, convertir(v)) for t, v in serie]
@@ -191,9 +204,9 @@ def recolectar_giovanni(con, variable: str, fuente: dict, desde: date, hasta: da
                     [(p["id"], variable, d["fecha"], d["valor"]) for d in diaria])
             total += len(diaria)
             if n % 25 == 0:
-                log.info("%-13s %d/%d puntos", variable, n, len(tareas))
+                log.info("%-20s %d/%d puntos", variable, n, len(tareas))
     if errores:
-        log.warning("%-13s %d puntos con error (se reintentarán en la próxima ejecución)", variable, errores)
+        log.warning("%-20s %d puntos con error (se reintentarán en la próxima ejecución)", variable, errores)
     return total
 
 
@@ -225,11 +238,11 @@ def recolectar(variables: list[str], desde: date | None = None) -> None:
             else:
                 if not token:
                     raise ErrorDatos("Falta EARTHDATA_TOKEN")
-                hasta = min(hoy, _ultima_fecha_cmr(fuente["dataset"]) or hoy)
+                hasta = min(hoy, _ultima_fecha_cmr(fuente) or hoy)
                 n = recolectar_giovanni(con, variable, fuente, inicio, hasta, desde is not None, token)
-            log.info("%-13s OK: %d valores en %.0fs", variable, n, time.monotonic() - t0)
+            log.info("%-20s OK: %d valores en %.0fs", variable, n, time.monotonic() - t0)
         except Exception as e:  # una variable que falla no detiene las demás
-            log.error("%-13s FALLO: %s", variable, e)
+            log.error("%-20s FALLO: %s", variable, e)
     con.close()
 
 

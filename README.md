@@ -28,6 +28,17 @@ NOAA ERDDAP ────┘   (cada día, 04:00)                       ├──
 | salinidad | ERDDAP, SMAP | 0,5° | diaria |
 | fitoplancton | ERDDAP, MODIS clorofila-a | 0,5° | compuesto de 8 días |
 | fluorescencia | ERDDAP, MODIS nFLH | 0,5° | compuesto de 8 días |
+| evaporacion | Giovanni, MERRA-2 M2T1NXFLX `EVAP` (mm/día) | 1° | ~3 semanas de retraso |
+| calor_latente | Giovanni, M2T1NXFLX `EFLUX` (W m⁻²) | 1° | ~3 semanas de retraso |
+| calor_sensible | Giovanni, M2T1NXFLX `HFLUX` (W m⁻²) | 1° | ~3 semanas de retraso |
+| viento_velocidad | Giovanni, M2T1NXFLX `SPEED` (m/s) | 1° | ~3 semanas de retraso |
+| viento_direccion | Giovanni, M2T1NXFLX `ULML` + `VLML` (grados, de dónde sopla) | 1° | ~3 semanas de retraso |
+| dif_temp_mar_aire | Giovanni, M2T1NXSLV `TS − T2M` (°C) | 1° | ~3 semanas de retraso |
+| dif_humedad_mar_aire | Giovanni, qsat(`TS`) − M2I1NXLFO `QLML` (g/kg) | 1° | ~3 semanas de retraso |
+
+La API de Giovanni no ofrece el mensual **M2TMNXFLX**; se usa el horario M2T1NXFLX promediado por día.
+Las dos diferencias mar-aire se calculan a partir de varios datasets. La humedad de saturación usa la
+fórmula de Bolton con el factor 0,98 por la salinidad y presión estándar (error menor del 2 %).
 
 La API de Giovanni solo devuelve series de un punto por petición. Por eso sus variables usan una rejilla de 1°
 (unos 260 puntos de mar). ERDDAP devuelve todo el Mediterráneo en una sola petición por variable y mes.
