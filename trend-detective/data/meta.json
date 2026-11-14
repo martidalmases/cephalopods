@@ -1167,15 +1167,6 @@
    "file": "nflh.json"
   },
   {
-   "id": "sss",
-   "name": "Sea surface salinity",
-   "unit": "PSU",
-   "decimals": 2,
-   "definition": "How salty the top layer of the sea is. Satellite record 2016-2022 only: too short for a trend.",
-   "source": "NASA SMAP daily, every third day averaged to months (NOAA CoastWatch ERDDAP), 2016-2022",
-   "file": "sss.json"
-  },
-  {
    "id": "aod",
    "name": "Aerosol optical depth",
    "unit": "",

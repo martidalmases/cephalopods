@@ -9,7 +9,7 @@ data files (same format as make_fake_data.py, see README "Data format").
 Sources (monthly means, 2003-2025):
   * NASA MERRA-2 monthly collections, subset to the Mediterranean through NASA's
     OPeNDAP service (needs an Earthdata token with "NASA GESDISC DATA ARCHIVE" approved).
-  * MODIS Aqua chlorophyll and nFLH, SMOS salinity: NOAA CoastWatch ERDDAP (no login).
+  * MODIS Aqua chlorophyll and nFLH: NOAA CoastWatch ERDDAP (no login).
 
 Everything is put on the backend's 0.5 degree grid (backend/almacen.py).
 Needs: requests, numpy, scipy.
@@ -48,8 +48,8 @@ NY, NX = len(LATS), len(LONS)
 
 # ----------------------------------------------------------------------------- variables
 # "merra": (collection, expression on that collection's fields)
-# "erddap": list of (server, dataset, field, stride, extra dims, first month, last month[, time stride])
-CW_PFEG, CW_NOAA = "https://coastwatch.pfeg.noaa.gov/erddap", "https://coastwatch.noaa.gov/erddap"
+# "erddap": list of (server, dataset, field, stride, extra dims, first month, last month)
+CW_PFEG = "https://coastwatch.pfeg.noaa.gov/erddap"
 VARIABLES = [
     dict(id="sst", name="Sea surface temperature", unit="°C", decimals=2,
          definition="How warm the very top of the sea is (skin temperature).",
@@ -69,12 +69,6 @@ VARIABLES = [
          source="NASA MODIS Aqua monthly, R2022 (NOAA CoastWatch ERDDAP)",
          erddap=[(CW_PFEG, "erdMH1cflhmday_R2022SQ", "nflh", 12, [], "2003-01", "2025-12"),
                  (CW_PFEG, "erdMH1cflhmday_R2022NRT", "nflh", 12, [], "2022-03", "2025-12")]),
-    dict(id="sss", name="Sea surface salinity", unit="PSU", decimals=2,
-         definition="How salty the top layer of the sea is. Satellite record 2016-2022 only: too short for a trend.",
-         source="NASA SMAP daily, every third day averaged to months (NOAA CoastWatch ERDDAP), 2016-2022",
-         # SMOS (2010+) was tried: almost no valid Mediterranean pixels (radio interference), biased low.
-         # SMAP from 2023 on: values drop 2-4 PSU and coverage jumps (product change), so it is cut at 2022.
-         erddap=[(CW_NOAA, "noaacwSMAPsssDaily", "sss", 2, ["(0.0)"], "2016-01", "2022-12", 3)]),
     dict(id="aod", name="Aerosol optical depth", unit="", decimals=3,
          definition="How hazy the air is from dust, smoke and pollution. 0 is perfectly clear.",
          source="NASA MERRA-2 monthly (M2TMNXAER, TOTEXTTAU)",
@@ -193,8 +187,7 @@ def fetch_erddap(sources: list) -> np.ndarray:
     snapped to the nearest cell, as backend/recolector.py does. A later source only
     fills months/cells the earlier ones left empty (e.g. NRT after science quality)."""
     result = empty()
-    for server, dataset, field, stride, extra, first, last, *tstride in sources:
-        tstride = tstride[0] if tstride else 1
+    for server, dataset, field, stride, extra, first, last in sources:
         total, count = np.zeros_like(result), np.zeros_like(result)
         lat_desc = True
         for year in range(max(int(first[:4]), YEARS[0]), min(int(last[:4]), YEARS[-1]) + 1):
@@ -203,7 +196,7 @@ def fetch_erddap(sources: list) -> np.ndarray:
             rows = None
             for _ in range(2):                    # latitude order differs per dataset: try both
                 lat = f"(46.0):{stride}:(30.0)" if lat_desc else f"(30.0):{stride}:(46.0)"
-                dims = [f"({t0}T00:00:00Z):{tstride}:({t1}T23:59:59Z)", *extra, lat, f"(-6.0):{stride}:(36.5)"]
+                dims = [f"({t0}T00:00:00Z):({t1}T23:59:59Z)", *extra, lat, f"(-6.0):{stride}:(36.5)"]
                 url = f"{server}/griddap/{dataset}.json?{field}" + "".join(f"[{d}]" for d in dims)
                 r = _get(url, timeout=600)
                 if r.status_code == 200:
@@ -340,9 +333,9 @@ def main() -> None:
             log.error("%s FAILED, left out: %s", var["id"], e)
 
     # Sea cells: inside the Mediterranean cut and seen by an ocean satellite.
-    seen = [np.isfinite(monthly[k]).any(axis=(0, 1)) for k in ("chl", "nflh", "sss") if k in monthly]
+    seen = [np.isfinite(monthly[k]).any(axis=(0, 1)) for k in ("chl", "nflh") if k in monthly]
     if not seen:
-        sys.exit("No satellite ocean data (chl, nflh, sss): cannot tell sea from land. Nothing written.")
+        sys.exit("No satellite ocean data (chl, nflh): cannot tell sea from land. Nothing written.")
     sea_n = (MEDITERRANEO & np.logical_or.reduce(seen))[::-1]      # site grid: row 0 = north
     flat = np.flatnonzero(sea_n.ravel())
     lat_cells = LATS[::-1][flat // NX]
