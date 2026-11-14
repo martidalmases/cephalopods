@@ -3,3 +3,5 @@ __pycache__/
 datos/
 .venv/
 .env
+.DS_Store
+.ipynb_checkpoints/
