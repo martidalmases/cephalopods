@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Especies del Mediterráneo</title>
+  <style>
+    :root {
+      --fondo: #f7f8fa; --panel: #ffffff; --texto: #1d2733; --suave: #5b6878; --borde: #dde2e8;
+      --acento: #0b6e8a; --tierra: #e9e4da; --punto: #1d2733;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root { --fondo: #12161c; --panel: #1a2029; --texto: #e6ebf0; --suave: #9aa7b6; --borde: #2c3542;
+              --acento: #4fb3d1; --tierra: #252b33; --punto: #ffffff; }
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font: 15px/1.5 system-ui, sans-serif; background: var(--fondo); color: var(--texto); }
+    main { max-width: 1100px; margin: 0 auto; padding: 24px 16px 48px; }
+    h1 { font-size: 1.5rem; margin: 0 0 4px; }
+    p.sub { margin: 0 0 20px; color: var(--suave); }
+    .barra { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; margin-bottom: 16px; }
+    label { display: grid; gap: 4px; font-size: .85rem; color: var(--suave); }
+    select, input { font: inherit; padding: 6px 8px; border: 1px solid var(--borde); border-radius: 6px;
+                    background: var(--panel); color: var(--texto); min-width: 220px; }
+    input[type=range] { min-width: 200px; padding: 0; }
+    .rejilla { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 16px; }
+    @media (max-width: 800px) { .rejilla { grid-template-columns: 1fr; } }
+    .panel { background: var(--panel); border: 1px solid var(--borde); border-radius: 10px; padding: 16px; }
+    .panel h2 { font-size: 1rem; margin: 0 0 12px; }
+    canvas { width: 100%; height: auto; display: block; border-radius: 6px; }
+    #estado { min-height: 1.5em; color: var(--suave); margin-bottom: 8px; }
+    #info { font-size: .85rem; color: var(--suave); min-height: 1.4em; margin-top: 8px; }
+    table { width: 100%; border-collapse: collapse; font-size: .85rem; font-variant-numeric: tabular-nums; }
+    th, td { text-align: right; padding: 4px 6px; border-bottom: 1px solid var(--borde); }
+    th:first-child, td:first-child { text-align: left; }
+    .meses { display: grid; grid-template-columns: repeat(12, 1fr); gap: 3px; align-items: end; height: 90px; }
+    .meses div { background: var(--acento); border-radius: 3px 3px 0 0; min-height: 2px; }
+    .meses-et { display: grid; grid-template-columns: repeat(12, 1fr); font-size: .7rem; color: var(--suave);
+                text-align: center; }
+    .leyenda { display: flex; align-items: center; gap: 8px; font-size: .8rem; color: var(--suave); margin-top: 8px; }
+    .leyenda span.grad { width: 120px; height: 10px; border-radius: 3px;
+                         background: linear-gradient(90deg, #d9eef3, #6cb8cc, #0b6e8a, #073b4c); }
+    ul.lim { margin: 0; padding-left: 18px; font-size: .85rem; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Especies y condiciones del Mediterráneo</h1>
+  <p class="sub">Idoneidad del hábitat calculada a partir de los avistamientos (OBIS) y las variables ambientales guardadas.</p>
+
+  <div class="barra">
+    <label>Especie calculada
+      <select id="lista"></select>
+    </label>
+    <label>Otra especie (nombre científico)
+      <input id="buscar" list="sugerencias" placeholder="p. ej. Thunnus thynnus" autocomplete="off">
+      <datalist id="sugerencias"></datalist>
+    </label>
+    <label>Mes: <strong id="mesTexto"></strong>
+      <input id="mes" type="range" min="1" max="12" step="1">
+    </label>
+  </div>
+  <div id="estado"></div>
+
+  <div class="rejilla">
+    <section class="panel">
+      <h2 id="titulo">Mapa de idoneidad</h2>
+      <canvas id="mapa" width="900" height="420"></canvas>
+      <div class="leyenda">0 <span class="grad"></span> 1 &nbsp;·&nbsp; ● avistamientos</div>
+      <div id="info"></div>
+    </section>
+    <div style="display:grid; gap:16px; align-content:start">
+      <section class="panel">
+        <h2>Superficie favorable por mes (%)</h2>
+        <div class="meses" id="meses"></div>
+        <div class="meses-et">E F M A M J J A S O N D</div>
+      </section>
+      <section class="panel">
+        <h2>Qué limita su hábitat</h2>
+        <ul class="lim" id="limitantes"></ul>
+      </section>
+    </div>
+  </div>
+
+  <section class="panel" style="margin-top:16px">
+    <h2>Nicho ambiental (valores donde se ha observado)</h2>
+    <table id="nicho"></table>
+  </section>
+</main>
+<script src="especies.js"></script>
+</body>
+</html>

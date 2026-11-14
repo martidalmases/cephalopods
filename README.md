@@ -1,21 +1,32 @@
 # Estado del Mediterráneo: backend
 
 La web no consulta a la NASA en cada visita. Un **recolector** descarga los datos una vez al día,
-los guarda en SQLite y la **API** solo lee de la base de datos.
+los guarda en un almacén **Zarr** y la **API** lo lee con **xarray**.
 
 ```
-NASA Giovanni ──┐                       ┌── GET /api/datos?lat=&lon=
-                ├─► recolector.py ─► mediterraneo.sqlite ─► api.py ─┼── GET /api/mapa?variable=
-NOAA ERDDAP ────┘   (cada día, 04:00)                       ├── GET /api/variables
-                                                            └── GET /api/estado
+NASA Giovanni ──┐                                    ┌── GET /api/datos, /api/mapa, /api/estado
+                ├─► recolector.py ─► datos/*.zarr ─► api.py ─┤
+NOAA ERDDAP ────┘   (cada día, 04:00)   ▲            └── GET /api/especies/…  ◄── fetch() de web/
+OBIS (avistamientos) ───► especies.py ──┘
+```
+
+```
+datos/
+  ambiente.zarr       un array por variable (time, lat, lon), rejilla de 0,5°, días 2000–2040
+                      (los trozos sin datos no ocupan disco) + máscara de mar `mar` (lat, lon)
+  climatologia.zarr   media por mes del año (mes, lat, lon)
+  especies/*.zarr     por especie: idoneidad y factor limitante (mes, lat, lon),
+                      avistamientos por celda y nicho; metadatos y resumen en los atributos
 ```
 
 | Archivo | Qué hace |
 |---|---|
 | `datos_mediterraneo.py` | Consulta en vivo para un punto (pruebas y diagnóstico). Contiene el catálogo de variables. |
-| `recolector.py` | Descarga incremental de toda la rejilla del Mediterráneo y la guarda en la BD. |
-| `bd.py` | Esquema SQLite, rejilla de 0,5° y búsqueda del punto más cercano. |
+| `recolector.py` | Descarga incremental de toda la rejilla del Mediterráneo y la guarda en `ambiente.zarr`. |
+| `almacen.py` | Rejilla de 0,5°, escritura en Zarr, lectura con xarray y búsqueda de la celda de mar más cercana. |
 | `api.py` | API FastAPI para la web. Documentación en `/docs`. |
+| `especies.py` | Nicho ambiental e idoneidad del hábitat de cada especie. |
+| `web/` | Página de ejemplo que llama a la API con `fetch()`; se sirve en `/`. |
 | `despliegue/` | Servicios y temporizador de systemd para la máquina virtual. |
 
 ## Variables
@@ -41,19 +52,57 @@ Las dos diferencias mar-aire se calculan a partir de varios datasets. La humedad
 fórmula de Bolton con el factor 0,98 por la salinidad y presión estándar (error menor del 2 %).
 
 La API de Giovanni solo devuelve series de un punto por petición. Por eso sus variables usan una rejilla de 1°
-(unos 260 puntos de mar). ERDDAP devuelve todo el Mediterráneo en una sola petición por variable y mes.
+(unas 260 celdas de mar). ERDDAP devuelve todo el Mediterráneo en una sola petición por variable y mes.
+
+## Especies
+
+Usa solo las variables ambientales ya guardadas. De fuera solo se descargan los avistamientos de cada
+especie, desde [OBIS](https://obis.org), que no pide registro y cuenta los registros desde el año 2000.
+
+1. **Climatología**: la media de cada variable por celda y mes del año (`groupby("time.month")` de xarray).
+2. **Nicho**: cada avistamiento se asocia a la celda de mar más cercana (a menos de 50 km) y a su mes.
+   Con los valores ambientales de esas celdas se calculan los percentiles p5–p95 de cada variable.
+3. **Idoneidad** de cada celda y mes, de 0 a 1, con un modelo de envolvente ambiental tipo BIOCLIM.
+   Se calcula para cada variable y se queda el valor más bajo. La variable que lo produce es el
+   *factor limitante*.
+
+**Cuándo se calcula cada especie:**
+- **Las principales** (7 cefalópodos de `ESPECIES_PRINCIPALES`) se recalculan al final de cada
+  ejecución del recolector y siempre están ya guardadas en `datos/especies/`.
+- **Las demás** se calculan la primera vez que la web las pide a `/api/especies/{nombre}`, lo que
+  tarda unos 10–20 s, y quedan guardadas.
+- **Recálculo automático:** si la climatología cambia después, la especie se recalcula en la
+  siguiente petición.
+- **Avistamientos de OBIS:** se vuelven a descargar cada 90 días.
+
+```js
+// Desde el frontend: Python calcula la especie si hace falta y devuelve el resultado
+const datos = await (await fetch("/api/especies/Thunnus thynnus")).json();
+const mapa  = await (await fetch("/api/especies/Thunnus thynnus/mapa?mes=7")).json();
+```
+
+**Limitaciones:**
+- **Es una asociación estadística, no una relación de causa.**
+- **Faltan variables importantes para los animales**, como el oxígeno, el pH o la temperatura del
+  fondo, porque todavía no se descargan.
+- **Los avistamientos están sesgados** hacia la costa y las zonas de pesca.
+- **La salinidad de SMAP es peor cerca de la costa**, así que tiende a salir como factor limitante.
 
 ## Prueba en local
 
 ```bash
-python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt   # Python 3.11–3.14 (ver nota)
 export EARTHDATA_TOKEN="..."
-.venv/bin/python recolector.py --desde 2026-10-01      # primera carga corta
-.venv/bin/uvicorn api:app --reload                     # http://localhost:8000/docs
+.venv/bin/python recolector.py --desde 2026-10-01      # primera carga corta (al final calcula las especies principales)
+.venv/bin/uvicorn api:app --reload                     # web: http://localhost:8000  ·  API: /docs
 ```
 
+**Nota sobre Python 3.15** (Fedora reciente): `numcodecs`, dependencia de Zarr, aún no tiene paquete
+para 3.15 y hay que compilarlo. Instala antes `sudo dnf install python3-devel`, o crea el entorno con
+otro Python: `uv venv --python 3.13 .venv`. En Ubuntu 24.04 (Azure), con Python 3.12, no hace falta nada.
+
 La primera carga sin `--desde` descarga los últimos 365 días. Las variables de ERDDAP tardan unos minutos.
-Las de Giovanni tardan más porque hacen una petición por punto, unas 260 por variable.
+Las de Giovanni tardan más porque hacen una petición por celda, unas 260 por variable.
 Las siguientes ejecuciones solo piden los días nuevos.
 
 ## Despliegue en una máquina virtual de Azure (Ubuntu)

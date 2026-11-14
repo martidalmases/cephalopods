@@ -1,5 +1,8 @@
 requests>=2.28
 fastapi>=0.110
 uvicorn[standard]>=0.29
+numpy>=2.0
+xarray>=2025.1
+zarr>=3.0
 # Opcional: obtener el token de Earthdata desde ~/.netrc
 # earthaccess

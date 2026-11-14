@@ -1,5 +1,5 @@
 .cache_datos/
 __pycache__/
-mediterraneo.sqlite*
+datos/
 .venv/
 .env

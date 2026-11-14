@@ -1,10 +1,11 @@
 """
 Recolector periódico: descarga las variables para toda la rejilla del Mediterráneo
-y las guarda en la base de datos (bd.py). Pensado para ejecutarse cada día con
+y las guarda en el almacén Zarr (almacen.py). Pensado para ejecutarse cada día con
 un temporizador de systemd o cron; sólo descarga lo que falta.
 
   * Variables de ERDDAP (salinidad, clorofila, fluorescencia): una petición por
-    variable y mes cubre todo el Mediterráneo con una rejilla de 0,5°.
+    variable y mes cubre todo el Mediterráneo con una rejilla de 0,5°. Las celdas
+    con datos de satélite forman la máscara de mar.
   * Variables de Giovanni (temperatura, NO2, aerosoles, flujos y viento de MERRA-2): la API sólo admite series
     en un punto, así que se consulta una rejilla más gruesa (1°, ~250 puntos).
     MERRA-2 y OMI se publican con retraso; el recolector pregunta a CMR cuál es
@@ -25,16 +26,17 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, timedelta
 
+import numpy as np
 import requests
 
-import bd
+import almacen
 from datos_mediterraneo import (TIMEOUT_ERDDAP, VARIABLES, VARIABLES_POR_DEFECTO, ErrorDatos, _a_fecha,
                                 _consultar_giovanni, _diario, _elegir_fuente, _token_earthdata)
 
 log = logging.getLogger("recolector")
 
 VARIABLES_RECOLECTADAS = VARIABLES_POR_DEFECTO
-DIAS_HISTORICO = 365           # primera carga si la BD está vacía y no se indica --desde
+DIAS_HISTORICO = 365           # primera carga si no hay datos y no se indica --desde
 SOLAPE_DIAS = 16               # se vuelven a pedir los últimos días (compuestos de 8 días, reprocesados NRT)
 TROZO_DIAS = 31                # días por petición de ERDDAP (~5 MB de JSON)
 HILOS_GIOVANNI = 4             # peticiones simultáneas a Giovanni (no saturar la cuota)
@@ -89,7 +91,7 @@ def _ultima_fecha_erddap(fuente: dict) -> date:
     return _a_fecha(r.json()["table"]["rows"][0][0][:10])
 
 
-def recolectar_erddap(con, variable: str, fuente: dict, desde: date, hasta: date) -> int:
+def recolectar_erddap(g, variable: str, fuente: dict, desde: date, hasta: date) -> int:
     rejilla = REJILLA_ERDDAP[fuente["dataset"]]
     paso = rejilla["paso"]
     lat = f"({LAT_MAX}):{paso}:({LAT_MIN})" if rejilla["lat_descendente"] else f"({LAT_MIN}):{paso}:({LAT_MAX})"
@@ -111,33 +113,22 @@ def recolectar_erddap(con, variable: str, fuente: dict, desde: date, hasta: date
         else:
             filas = r.json()["table"]["rows"]
 
-        lote = []
+        # Bloque (días, lat, lon) del trozo; cada píxel de ERDDAP cae en su celda de 0,5°.
+        bloque = np.full(((fin - inicio).days + 1, len(almacen.LATS), len(almacen.LONS)), np.nan, dtype="float32")
         for fila in filas:
             instante, la, lo, valor = fila[0], fila[-3], fila[-2], fila[-1]
-            if valor is None:
+            celda = almacen.indice_celda(la, lo)
+            dia = (_a_fecha(instante[:10]) - inicio).days
+            if valor is None or celda is None or not 0 <= dia < len(bloque):
                 continue
-            la, lo = bd.ajustar_a_rejilla(la, lo)
-            if not bd.es_mediterraneo(la, lo):
-                continue
-            lote.append((la, lo, instante[:10], convertir(valor) if convertir else valor))
-        _guardar(con, variable, lote)
-        total += len(lote)
-        log.info("%-20s %s..%s  %6d valores", variable, inicio, fin, len(lote))
+            if almacen.MEDITERRANEO[celda]:
+                bloque[(dia, *celda)] = convertir(valor) if convertir else valor
+        n = almacen.escribir_bloque(g, variable, inicio, bloque)
+        almacen.marcar_mar(g, ~np.isnan(bloque).all(axis=0))
+        total += n
+        log.info("%-20s %s..%s  %6d valores", variable, inicio, fin, n)
         inicio = fin + timedelta(days=1)
     return total
-
-
-def _guardar(con, variable: str, lote: list[tuple[float, float, str, float]]) -> None:
-    with con:
-        for la, lo, fecha, valor in lote:
-            # Los puntos de mar se crean al recibir su primer dato; los de lat/lon enteras
-            # forman la rejilla de 1° que se consulta en Giovanni.
-            con.execute("INSERT OR IGNORE INTO punto (lat, lon, giovanni) VALUES (?, ?, ?)",
-                        (la, lo, int(la == int(la) and lo == int(lo))))
-            con.execute(
-                "INSERT OR REPLACE INTO medicion (punto_id, variable, fecha, valor) "
-                "SELECT id, ?, ?, ? FROM punto WHERE lat = ? AND lon = ?",
-                (variable, fecha, round(valor, 6), la, lo))
 
 
 # --------------------------------------------------------------------------- Giovanni
@@ -159,91 +150,93 @@ def _ultima_fecha_cmr(fuente: dict) -> date | None:
     return min(fechas) if fechas else None
 
 
-def recolectar_giovanni(con, variable: str, fuente: dict, desde: date, hasta: date,
-                        forzar_desde: bool, token: str) -> int:
-    puntos = con.execute("SELECT id, lat, lon FROM punto WHERE giovanni = 1").fetchall()
-    if not puntos:
-        raise ErrorDatos("No hay puntos en la BD: ejecuta antes una variable de ERDDAP (p. ej. salinidad)")
+def recolectar_giovanni(g, variable: str, fuente: dict, desde: date, hasta: date, token: str) -> int:
+    """
+    Una petición por celda de 1°. Cada celda empieza el día siguiente a su último dato
+    dentro de [desde, hasta], así que las que fallaron en otra ejecución se rellenan.
+    """
+    ii, jj = np.nonzero(g["mar"][:] & almacen.CELDAS_1_GRADO)
+    if not len(ii):
+        raise ErrorDatos("No hay celdas de mar: ejecuta antes una variable de ERDDAP (p. ej. salinidad)")
+    if desde > hasta:
+        return 0
 
-    # Rango por punto: desde el día siguiente al último guardado. Un punto sin datos
-    # (falló antes) empieza donde empieza el histórico del resto de puntos.
-    primera = con.execute("SELECT MIN(fecha) FROM medicion WHERE variable = ?", (variable,)).fetchone()[0]
+    t0, t1 = almacen.indice_fecha(desde), almacen.indice_fecha(hasta) + 1
+    bloque = g[variable][t0:t1]                     # (días, lat, lon) ya guardado
     tareas = []
-    for p in puntos:
-        inicio = desde
-        if not forzar_desde:
-            ultima = con.execute("SELECT MAX(fecha) FROM medicion WHERE punto_id = ? AND variable = ?",
-                                 (p["id"], variable)).fetchone()[0]
-            if ultima:
-                inicio = max(desde, _a_fecha(ultima) + timedelta(days=1))
-            elif primera:
-                inicio = min(desde, _a_fecha(primera))
+    for i, j in zip(ii, jj):
+        validos = np.flatnonzero(~np.isnan(bloque[:, i, j]))
+        inicio = desde + timedelta(days=int(validos[-1]) + 1) if len(validos) else desde
         if inicio <= hasta:
-            tareas.append((p, inicio))
-    log.info("%-20s %d puntos por consultar en Giovanni (hasta %s)", variable, len(tareas), hasta)
+            tareas.append((int(i), int(j), inicio))
+    log.info("%-20s %d celdas por consultar en Giovanni (%s..%s)", variable, len(tareas), desde, hasta)
 
+    nuevo = np.full_like(bloque, np.nan)
     convertir = fuente.get("convertir")
-    total = errores = 0
+    errores = 0
     with ThreadPoolExecutor(max_workers=HILOS_GIOVANNI) as pool:
-        futuros = {pool.submit(_consultar_giovanni, fuente, p["lat"], p["lon"], inicio, hasta, token): p
-                   for p, inicio in tareas}
+        futuros = {pool.submit(_consultar_giovanni, fuente, float(almacen.LATS[i]), float(almacen.LONS[j]),
+                               inicio, hasta, token): (i, j) for i, j, inicio in tareas}
         for n, futuro in enumerate(as_completed(futuros), 1):
-            p = futuros[futuro]
+            i, j = futuros[futuro]
             try:
                 serie = futuro.result()
             except (ErrorDatos, requests.RequestException) as e:
                 errores += 1
-                log.warning("%-20s (%s, %s): %s", variable, p["lat"], p["lon"], e)
+                log.warning("%-20s (%s, %s): %s", variable, almacen.LATS[i], almacen.LONS[j], e)
                 continue
             if convertir:
                 serie = [(t, convertir(v)) for t, v in serie]
-            diaria = _diario(serie)
-            with con:
-                con.executemany(
-                    "INSERT OR REPLACE INTO medicion (punto_id, variable, fecha, valor) VALUES (?, ?, ?, ?)",
-                    [(p["id"], variable, d["fecha"], d["valor"]) for d in diaria])
-            total += len(diaria)
+            for d in _diario(serie):
+                dia = (_a_fecha(d["fecha"]) - desde).days
+                if 0 <= dia < len(nuevo):
+                    nuevo[dia, i, j] = d["valor"]
             if n % 25 == 0:
-                log.info("%-20s %d/%d puntos", variable, n, len(tareas))
+                log.info("%-20s %d/%d celdas", variable, n, len(tareas))
     if errores:
-        log.warning("%-20s %d puntos con error (se reintentarán en la próxima ejecución)", variable, errores)
-    return total
+        log.warning("%-20s %d celdas con error (se reintentarán en la próxima ejecución)", variable, errores)
+    return almacen.escribir_bloque(g, variable, desde, nuevo)
 
 
 # --------------------------------------------------------------------------- principal
 
 def recolectar(variables: list[str], desde: date | None = None) -> None:
-    con = bd.conectar()
     hoy = date.today()
     token = _token_earthdata(None)
-    # Primero las de ERDDAP: crean los puntos de mar que luego usa Giovanni.
+    g = almacen.abrir_escritura(variables, {v: VARIABLES[v]["unidades"] for v in variables})
+    # Primero las de ERDDAP: marcan las celdas de mar que luego consulta Giovanni.
     variables = sorted(variables, key=lambda v: _elegir_fuente(v, hoy - timedelta(days=30))["tipo"] != "erddap")
 
     for variable in variables:
         t0 = time.monotonic()
         try:
+            fuente = _elegir_fuente(variable, hoy - timedelta(days=30))
+            atributos = g[variable].attrs
             if desde:
                 inicio = desde
+            elif fuente["tipo"] == "erddap":
+                # Incremental: unos días antes del último dato (compuestos de 8 días, reprocesados).
+                inicio = (_a_fecha(atributos["hasta"]) - timedelta(days=SOLAPE_DIAS)
+                          if atributos.get("hasta") else hoy - timedelta(days=DIAS_HISTORICO))
             else:
-                ultima = con.execute("SELECT MAX(fecha) FROM medicion WHERE variable = ?", (variable,)).fetchone()[0]
-                inicio = (_a_fecha(ultima) - timedelta(days=SOLAPE_DIAS)) if ultima else hoy - timedelta(days=DIAS_HISTORICO)
-
-            # Fuente vigente para el periodo; si empieza antes de su cobertura, se recorta.
-            fuente = _elegir_fuente(variable, hoy - timedelta(days=30))
-            inicio = max(inicio, _a_fecha(fuente["desde"]))
+                # Giovanni revisa todo el histórico guardado: cada celda sigue donde se quedó.
+                inicio = _a_fecha(atributos["desde"]) if atributos.get("desde") else hoy - timedelta(days=DIAS_HISTORICO)
+            # Si empieza antes de la cobertura de la fuente (o del almacén), se recorta.
+            inicio = max(inicio, _a_fecha(fuente["desde"]), almacen.ORIGEN)
 
             if fuente["tipo"] == "erddap":
                 hasta = min(hoy, _ultima_fecha_erddap(fuente))
-                n = recolectar_erddap(con, variable, fuente, inicio, hasta)
+                n = recolectar_erddap(g, variable, fuente, inicio, hasta)
             else:
                 if not token:
                     raise ErrorDatos("Falta EARTHDATA_TOKEN")
                 hasta = min(hoy, _ultima_fecha_cmr(fuente) or hoy)
-                n = recolectar_giovanni(con, variable, fuente, inicio, hasta, desde is not None, token)
+                n = recolectar_giovanni(g, variable, fuente, inicio, hasta, token)
             log.info("%-20s OK: %d valores en %.0fs", variable, n, time.monotonic() - t0)
         except Exception as e:  # una variable que falla no detiene las demás
             log.error("%-20s FALLO: %s", variable, e)
-    con.close()
+        finally:
+            almacen.consolidar()  # los lectores (API) ven los datos nuevos
 
 
 def main() -> None:
@@ -253,8 +246,13 @@ def main() -> None:
     parser.add_argument("--desde", type=lambda s: datetime.strptime(s, "%Y-%m-%d").date(),
                         help="fecha inicial (AAAA-MM-DD); por defecto, incremental")
     parser.add_argument("--variables", nargs="+", choices=list(VARIABLES), default=VARIABLES_RECOLECTADAS)
+    parser.add_argument("--sin-especies", action="store_true",
+                        help="no recalcular la climatología ni las especies principales al terminar")
     args = parser.parse_args()
     recolectar(args.variables, args.desde)
+    if not args.sin_especies:
+        import especies
+        especies.calcular_principales()
 
 
 if __name__ == "__main__":
