@@ -23,7 +23,7 @@ var state = {
   offset: 0,                     // first focused year layer in "time" mode
   focus: null,                   // layer opened as a flat map, or null
   sel: { type: "region" },       // region | point {cell} | area {i0,i1,j0,j1,cells}
-  baseline: "all",               // time-stack colours: "all" (whole-sea average) | "cell" (each place's own average)
+  baseline: "all",               // time-stack colour reference: whole-sea mean, local mean, or absolute min–max
   corr: "raw",                   // analysis correlation: "raw" | "detrended"
   panelOpen: true
 };
@@ -46,10 +46,12 @@ function load() {
     });
     return Promise.all(m.variables.map(function (v) {
       return getJSON(DATA_DIR + v.file).then(function (d) {
-        var mean = new Float64Array(nOcean), cnt = new Float64Array(nOcean), n = d.values.length, sum = 0, tot = 0, y, k, x;
-        for (y = 0; y < n; y++) for (k = 0; k < nOcean; k++) { x = d.values[y][k]; if (x === null) continue; mean[k] += x; cnt[k]++; sum += x; tot++; }
+        var mean = new Float64Array(nOcean), cnt = new Float64Array(nOcean), n = d.values.length, sum = 0, tot = 0, validValues = [], y, k, x;
+        for (y = 0; y < n; y++) for (k = 0; k < nOcean; k++) { x = d.values[y][k]; if (x === null) continue; mean[k] += x; cnt[k]++; sum += x; tot++; validValues.push(x); }
         for (k = 0; k < nOcean; k++) mean[k] = cnt[k] ? mean[k] / cnt[k] : NaN;
-        d.cellMean = mean; d.grand = sum / (tot || 1);
+        validValues.sort(function (a, b) { return a - b; });
+        function percentile(p) { var pos = (validValues.length - 1) * p, lo = Math.floor(pos), hi = Math.ceil(pos); return validValues[lo] + (validValues[hi] - validValues[lo]) * (pos - lo); }
+        d.cellMean = mean; d.grand = sum / (tot || 1); d.absoluteLow = validValues.length ? percentile(0.02) : NaN; d.absoluteHigh = validValues.length ? percentile(0.98) : NaN;
         var sample = []; for (y = 0; y < n; y++) for (k = y % 5; k < nOcean; k += 5) if (d.values[y][k] !== null) sample.push(Math.abs(d.values[y][k] - d.grand));
         sample.sort(function (a, b) { return a - b; }); d.spatialScale = sample[Math.floor(sample.length * 0.98)] || 1;
         d.info = v; vars[v.id] = d;
@@ -165,6 +167,7 @@ function layerValue(layer, k) {             // normalised colour value for ocean
   if (layer.year !== undefined) {
     var d = vars[state.varId], v = d.values[yearIndex(layer.year)][k];
     if (v === null) return NaN;
+    if (state.baseline === "absolute") return d.absoluteHigh === d.absoluteLow ? 0 : 2 * (v - d.absoluteLow) / (d.absoluteHigh - d.absoluteLow) - 1;
     return state.baseline === "cell" ? (v - d.cellMean[k]) / d.scale.anomaly : (v - d.grand) / d.spatialScale;
   }
   var dv = vars[layer.varId], sl = dv.trend.slope_per_decade[k]; return sl === null ? NaN : sl / dv.scale.slope;
@@ -463,9 +466,9 @@ function updateLegend() {
   var d = vars[state.varId], info = d.info, node = $("legend"), parts = [], tail = [], fl = flatLayer();
   function ramp(a, b) { return "<span>" + a + "<span class=\"ramp\"></span>" + b + "</span>"; }
   if (state.mode === "time") {
-    var own = state.baseline === "cell";
-    parts.push("<span>Average of: <span class=\"seg small\" id=\"baseline\"><button type=\"button\" data-b=\"all\" aria-pressed=\"" + !own + "\">whole sea, all years</button><button type=\"button\" data-b=\"cell\" aria-pressed=\"" + own + "\">each place, all years</button></span></span>");
-    tail.push("<span class=\"br\"></span>", ramp("below average", "above"), "<span>same range on every layer: ±" + num(own ? d.scale.anomaly : d.spatialScale, info.decimals) + unit(info) + "</span>");   // time mode: scale goes on its own second line
+    var own = state.baseline === "cell", absolute = state.baseline === "absolute";
+    parts.push("<span>Colour reference: <span class=\"seg small\" id=\"baseline\"><button type=\"button\" data-b=\"all\" aria-pressed=\"" + (state.baseline === "all") + "\">whole sea, all years</button><button type=\"button\" data-b=\"cell\" aria-pressed=\"" + own + "\">each place, all years</button><button type=\"button\" data-b=\"absolute\" aria-pressed=\"" + absolute + "\">absolute value</button></span></span>");
+    tail.push("<span class=\"br\"></span>", absolute ? ramp("≤ " + num(d.absoluteLow, info.decimals) + unit(info), "≥ " + num(d.absoluteHigh, info.decimals) + unit(info)) : ramp("below average", "above"), absolute ? "<span>2nd–98th percentile; endpoint colours clipped</span>" : "<span>same range on every layer: ±" + num(own ? d.scale.anomaly : d.spatialScale, info.decimals) + unit(info) + "</span>");
   } else parts.push(ramp("falling", "rising"), state.mode === "trend" ? "<span>range ±" + d.scale.slope + unit(info) + " per decade</span>" : "<span>one fixed range per variable (units differ)</span>");
   if (fl && fl.varId !== undefined && isFlat()) parts.push("<span><span class=\"sw hatch\"></span>not significant (p ≥ " + ALPHA + ")</span>");
   parts.push("<span><span class=\"sw land\"></span>land</span>", "<span><span class=\"sw nodata\"></span>no data</span>", "<span><span class=\"sw probe\"></span>selection</span>");
