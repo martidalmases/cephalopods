@@ -7,12 +7,13 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="species.css?v=8">
 </head>
 <body>
 <div class="app" id="app">
 
   <aside class="side" aria-label="Data">
-    <div class="logo"><span class="logo-box">logo</span><span class="logo-name">Trend Detective</span></div>
+    <div class="logo"><img class="logo-img" src="logo.png" alt="Team logo: a nautilus"><span class="logo-name">Trend Detective</span></div>
     <div class="side-body">
       <p class="flag" id="synthetic-flag" hidden>Synthetic data. Not NASA measurements.</p>
       <section>
@@ -47,6 +48,7 @@
 
     <div class="row" id="row">
       <main class="main">
+        <div class="legend" id="legend"></div>
         <div class="stage" id="stage">
           <canvas id="view" tabindex="0" aria-label="Main visualisation"></canvas>
           <p class="loading" id="loading">Loading data…</p>
@@ -58,7 +60,6 @@
           <button type="button" class="round" id="down" aria-label="Next layer">&#9660;</button>
           <span class="fact dim" id="stack-hint"></span>
         </div>
-        <div class="legend" id="legend"></div>
       </main>
 
       <aside class="panel" id="panel" aria-label="Graphs">
@@ -86,6 +87,7 @@
   </div>
 </div>
 <div id="tip" role="status"></div>
-<script src="app.js"></script>
+<script src="app.js?v=2"></script>
+<script src="species.js?v=8"></script>
 </body>
 </html>

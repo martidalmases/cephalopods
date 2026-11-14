@@ -4,8 +4,8 @@ After=network-online.target
 
 [Service]
 Type=oneshot
-User=mediterraneo
-WorkingDirectory=/opt/mediterraneo
-EnvironmentFile=/etc/mediterraneo.env
-ExecStart=/opt/mediterraneo/.venv/bin/python recolector.py
+User=cephalopods
+WorkingDirectory=/opt/cephalopods
+EnvironmentFile=/etc/cephalopods.env
+ExecStart=/opt/cephalopods/.venv/bin/python recolector.py
 TimeoutStartSec=6h

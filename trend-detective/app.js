@@ -4,7 +4,10 @@
 (function () {
 "use strict";
 
-var DATA_DIR = "data/";
+// Real data from the backend (/api/trends/<set>/, made by exportar_trends.py); "?datos=<set>" picks the
+// region and period, "?datos=sintetico" shows the original synthetic files in data/.
+var DATA_SET = new URLSearchParams(location.search).get("datos") || "mediterraneo-1980";
+var DATA_DIR = DATA_SET === "sintetico" ? "data/" : "/api/trends/" + encodeURIComponent(DATA_SET) + "/";
 var VISIBLE = 4;                 // layers in focus in a stack
 var ALPHA = 0.05;                // significance level
 var ISO = { ux: 1, uy: 0.10, vx: -0.35, vy: 0.30 };   // screen vectors of one grid step east / south

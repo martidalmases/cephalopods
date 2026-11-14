@@ -135,6 +135,15 @@ VARIABLES = {
              "convertir": lambda e: e * 86400},  # kg m-2 s-1 -> mm/día
         ],
     },
+    "precipitacion": {
+        "nombre": "Precipitación (corregida con observaciones) - MERRA-2",
+        "unidades": "mm día-1",
+        "fuentes": [
+            {"tipo": "giovanni", "dataset": "M2T1NXFLX_5_12_4_PRECTOTCORR",
+             "desde": "1980-01-01", "hasta": None,
+             "convertir": lambda p: p * 86400},  # kg m-2 s-1 -> mm/día
+        ],
+    },
     "calor_latente": {
         "nombre": "Flujo de calor latente (positivo: el mar pierde calor) - MERRA-2",
         "unidades": "W m-2",
