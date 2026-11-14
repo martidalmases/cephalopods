@@ -84,9 +84,10 @@ button:focus-visible,canvas:focus-visible{outline:2px solid var(--probe);outline
 .stackbar #scroll-pos{font-family:var(--mono);font-size:.84rem;min-width:110px;text-align:center}
 .round{width:32px;height:32px;border-radius:50%;border:1px solid var(--ink);background:var(--sheet);cursor:pointer;font-size:.75rem;padding:0}
 .round:disabled{border-color:var(--rule);color:var(--rule);cursor:default}
-.legend{display:flex;flex-wrap:wrap;gap:8px 18px;align-items:center;padding:8px 28px 8px 16px;border-bottom:1px solid var(--rule);background:var(--sheet);font-size:.8rem;color:var(--ink-2);min-height:42px}
+.legend{display:flex;flex-wrap:wrap;gap:8px 18px;align-items:center;justify-content:center;padding:8px 28px 8px 16px;border-bottom:1px solid var(--rule);background:var(--sheet);font-size:.8rem;color:var(--ink-2);min-height:42px}
 .ramp{display:inline-block;width:110px;height:10px;border-radius:2px;background:linear-gradient(90deg,var(--neg),var(--mid),var(--pos));vertical-align:middle;margin:0 6px}
 .sw{display:inline-block;width:14px;height:14px;vertical-align:-2px;margin-right:6px;border:1px solid var(--rule)}
+.legend .br{flex-basis:100%;height:0;margin-top:-8px}
 .sw.land{background:var(--land)}
 .sw.nodata{background:var(--rule)}
 .sw.hatch{background:repeating-linear-gradient(135deg,transparent 0 3px,var(--ink) 3px 4px)}

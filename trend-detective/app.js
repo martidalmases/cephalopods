@@ -457,16 +457,16 @@ function updateSidebar() {
   ids.forEach(function (id) { var info = vars[id].info, p = el("p"); p.appendChild(el("b", "", info.name + ". ")); p.appendChild(document.createTextNode(info.definition)); p.appendChild(el("span", "src", "Source: " + info.source)); box.appendChild(p); });
 }
 function updateLegend() {
-  var d = vars[state.varId], info = d.info, node = $("legend"), parts = [], fl = flatLayer();
+  var d = vars[state.varId], info = d.info, node = $("legend"), parts = [], tail = [], fl = flatLayer();
   function ramp(a, b) { return "<span>" + a + "<span class=\"ramp\"></span>" + b + "</span>"; }
   if (state.mode === "time") {
     var own = state.baseline === "cell";
-    parts.push("<span>Average of: <span class=\"seg small\" id=\"baseline\"><button type=\"button\" data-b=\"all\" aria-pressed=\"" + !own + "\">whole sea, all years</button><button type=\"button\" data-b=\"cell\" aria-pressed=\"" + own + "\">each place, all years</button></span></span>",
-      ramp("below average", "above"), "<span>same range on every layer: ±" + num(own ? d.scale.anomaly : d.spatialScale, info.decimals) + unit(info) + "</span>");
+    parts.push("<span>Average of: <span class=\"seg small\" id=\"baseline\"><button type=\"button\" data-b=\"all\" aria-pressed=\"" + !own + "\">whole sea, all years</button><button type=\"button\" data-b=\"cell\" aria-pressed=\"" + own + "\">each place, all years</button></span></span>");
+    tail.push("<span class=\"br\"></span>", ramp("below average", "above"), "<span>same range on every layer: ±" + num(own ? d.scale.anomaly : d.spatialScale, info.decimals) + unit(info) + "</span>");   // time mode: scale goes on its own second line
   } else parts.push(ramp("falling", "rising"), state.mode === "trend" ? "<span>range ±" + d.scale.slope + unit(info) + " per decade</span>" : "<span>one fixed range per variable (units differ)</span>");
   if (fl && fl.varId !== undefined && isFlat()) parts.push("<span><span class=\"sw hatch\"></span>not significant (p ≥ " + ALPHA + ")</span>");
   parts.push("<span><span class=\"sw land\"></span>land</span>", "<span><span class=\"sw nodata\"></span>no data</span>", "<span><span class=\"sw probe\"></span>selection</span>");
-  node.innerHTML = parts.join("");
+  node.innerHTML = parts.concat(tail).join("");
   var bl = $("baseline"); if (bl) bl.querySelectorAll("button").forEach(function (b) { b.addEventListener("click", function () { state.baseline = b.dataset.b; render(); }); });
 }
 function updateStackBar() {
