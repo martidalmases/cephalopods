@@ -27,53 +27,63 @@
       </section>
       <section>
         <h2>What is this?</h2>
-        <p id="definition" class="definition">&nbsp;</p>
-        <p class="fact dim" id="source"></p>
+        <div id="definitions" class="definitions"></div>
       </section>
     </div>
   </aside>
 
-  <main class="main">
-    <div class="options" role="group" aria-label="Visualisation options">
-      <span class="options-label">Visualisation</span>
-      <span class="seg" id="modes">
+  <div class="work">
+    <div class="options">
+      <span class="seg" id="screens" role="group" aria-label="Screen">
+        <button type="button" data-screen="viz" aria-pressed="true">Visualisation</button>
+        <button type="button" data-screen="analysis" aria-pressed="false">Analysis</button>
+      </span>
+      <span class="seg" id="modes" role="group" aria-label="Visualisation options">
         <button type="button" data-mode="time" aria-pressed="true">Stack by time</button>
         <button type="button" data-mode="vars" aria-pressed="false">Stack by variable</button>
         <button type="button" data-mode="trend" aria-pressed="false">Trend map</button>
       </span>
     </div>
-    <div class="stage" id="stage">
-      <canvas id="view" tabindex="0" aria-label="Main visualisation"></canvas>
-      <p class="loading" id="loading">Loading data…</p>
-    </div>
-    <div class="stackbar" id="stackbar">
-      <button type="button" class="ghost" id="back" hidden>&larr; Back to stack</button>
-      <button type="button" class="round" id="up" aria-label="Previous layer">&#9650;</button>
-      <span id="scroll-pos"></span>
-      <button type="button" class="round" id="down" aria-label="Next layer">&#9660;</button>
-      <span class="fact dim" id="stack-hint"></span>
-    </div>
-    <div class="legend" id="legend"></div>
-  </main>
 
-  <aside class="panel" id="panel" aria-label="Graph">
-    <div class="panel-head">
-      <h2 id="panel-title">&nbsp;</h2>
-      <button type="button" class="ghost small" id="clear" hidden>Clear selection</button>
-    </div>
-    <p class="fact dim" id="panel-where">&nbsp;</p>
-    <div id="single">
-      <canvas id="chart" aria-label="Time series with fitted trend"></canvas>
-      <p class="verdict" id="verdict">&nbsp;</p>
-    </div>
-    <div id="multi" hidden></div>
-    <div id="allvars-wrap">
-      <h2>Every variable, same selection</h2>
-      <table class="allvars"><thead><tr><th>Variable</th><th>Per decade</th><th>Signif.</th></tr></thead><tbody id="allvars"></tbody></table>
-    </div>
-  </aside>
+    <div class="row" id="row">
+      <main class="main">
+        <div class="stage" id="stage">
+          <canvas id="view" tabindex="0" aria-label="Main visualisation"></canvas>
+          <p class="loading" id="loading">Loading data…</p>
+        </div>
+        <div class="stackbar" id="stackbar">
+          <button type="button" class="ghost" id="back" hidden>&larr; Back to stack</button>
+          <button type="button" class="round" id="up" aria-label="Previous layer">&#9650;</button>
+          <span id="scroll-pos"></span>
+          <button type="button" class="round" id="down" aria-label="Next layer">&#9660;</button>
+          <span class="fact dim" id="stack-hint"></span>
+        </div>
+        <div class="legend" id="legend"></div>
+      </main>
 
-  <button type="button" id="panel-toggle" aria-expanded="true" aria-controls="panel" aria-label="Hide graph panel" title="Hide graph panel">&rsaquo;</button>
+      <aside class="panel" id="panel" aria-label="Graphs">
+        <div id="viz-panel">
+          <div class="panel-head">
+            <h2 id="panel-title">&nbsp;</h2>
+            <button type="button" class="ghost small" id="clear" hidden>Clear selection</button>
+          </div>
+          <p class="fact dim" id="panel-where">&nbsp;</p>
+          <div id="single">
+            <canvas id="chart" aria-label="Time series with fitted trend"></canvas>
+            <p class="verdict" id="verdict">&nbsp;</p>
+          </div>
+          <div id="multi" hidden></div>
+          <div id="allvars-wrap">
+            <h2>Every variable, same selection</h2>
+            <table class="allvars"><thead><tr><th>Variable</th><th>Trend</th><th>Signif.</th></tr></thead><tbody id="allvars"></tbody></table>
+          </div>
+        </div>
+        <div id="analysis" hidden></div>
+      </aside>
+
+      <button type="button" id="panel-toggle" aria-expanded="true" aria-controls="panel" aria-label="Hide graph panel" title="Hide graph panel">&rsaquo;</button>
+    </div>
+  </div>
 </div>
 <div id="tip" role="status"></div>
 <script src="app.js"></script>

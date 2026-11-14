@@ -32,22 +32,35 @@ Regenerate the fake data: `pip install numpy scipy global-land-mask`, then
 
 ## What the site does
 
-- **Left panel:** region, period and the variable list with a plain-language definition.
-  In "Stack by variable" the list becomes tick boxes: tick up to four variables to stack.
-- **Visualisation options:** Stack by time, Stack by variable, Trend map.
-- **Stacks:** four layers in focus, plus a grey layer above and below showing there is more.
-  Mouse wheel, arrow keys or the buttons under the view move through them with a smooth slide.
-  - By time: one layer per year, newest on top.
-  - By variable: one layer per ticked variable, coloured by trend direction.
-- **Opening a map:** click a layer and it turns to face you as a flat map. Click a point, or drag
-  a box to select an area. "Back to stack" (or Esc) returns. The up/down buttons step to the
-  next layer while the map stays open.
-- **Trend map:** the flat map of rate of change per decade for one variable, hatched where the
-  trend is not significant.
-- **Right panel (round handle on its edge opens and closes it):**
-  - One variable: time series, fitted trend, rate per decade and a plain-language verdict.
-  - Stack by variable: one small graph per stacked variable, for the same selection.
-  - A table of every variable's trend for the current selection.
+Two screens, switched at the top left: **Visualisation** and **Analysis**.
+
+### Visualisation
+
+- **Left panel:** region, period and the variable list. In "Stack by variable" the list becomes
+  tick boxes (up to four). "What is this?" explains every selected variable.
+- **Options:** Stack by time, Stack by variable, Trend map.
+- **Stacks:** four layers in focus plus a grey one above and below. The mouse wheel glides the
+  stack and it then snaps to four whole layers; the buttons and arrow keys move one layer.
+  Each layer has its name under its left corner and a reading for the current selection above
+  its right corner.
+- **Opening a map:** click a layer and it turns to face you. Click a point or drag a box to select
+  an area. The wheel zooms (Shift + drag moves the zoomed map). The buttons step to the next
+  layer. "Back to stack" or Esc returns.
+- **Trend map:** rate of change per decade for one variable, hatched where not significant.
+- **Right panel:** graphs only, no numbers. One graph for one variable, or one small graph per
+  stacked variable, plus a table saying Higher / Lower / No change and whether it is significant.
+
+### Analysis
+
+The maps slide away and the graph panel takes the space. For the current selection it shows:
+
+- the time series of the ticked variables with rate per decade and p-value,
+- a table of every variable: rate per decade, p-value, direction, significance,
+- a correlation matrix of all variables (Pearson r of the yearly values), with a switch to
+  remove each variable's trend first.
+
+"No change" in the tables means the slope is smaller than 10% of that variable's colour range
+(`direction()` in `app.js`); it is a display threshold, not a statistical test.
 
 ### Colours
 
@@ -61,6 +74,7 @@ Regenerate the fake data: `pip install numpy scipy global-land-mask`, then
 - Per-cell and whole-region trends come from the Python pipeline (in the JSON files).
 - Area selections are averaged (area-weighted) and fitted **in the browser** with the same method:
   least-squares slope and a two-sided t-test. See `ols()` in `app.js`.
+- Correlations are computed in the browser (`pearson()` and `detrend()` in `app.js`).
 
 ## Data format
 
