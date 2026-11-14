@@ -48,7 +48,7 @@ NY, NX = len(LATS), len(LONS)
 
 # ----------------------------------------------------------------------------- variables
 # "merra": (collection, expression on that collection's fields)
-# "erddap": list of (server, dataset, field, stride, extra dims, first month, last month)
+# "erddap": list of (server, dataset, field, stride, extra dims, first month, last month[, time stride])
 CW_PFEG, CW_NOAA = "https://coastwatch.pfeg.noaa.gov/erddap", "https://coastwatch.noaa.gov/erddap"
 VARIABLES = [
     dict(id="sst", name="Sea surface temperature", unit="°C", decimals=2,
@@ -70,9 +70,10 @@ VARIABLES = [
          erddap=[(CW_PFEG, "erdMH1cflhmday_R2022SQ", "nflh", 12, [], "2003-01", "2025-12"),
                  (CW_PFEG, "erdMH1cflhmday_R2022NRT", "nflh", 12, [], "2022-03", "2025-12")]),
     dict(id="sss", name="Sea surface salinity", unit="PSU", decimals=2,
-         definition="How salty the top layer of the sea is. Satellites only measure it since 2010; shown from 2011.",
-         source="ESA SMOS 3-day composites (NOAA CoastWatch ERDDAP), from 2011",
-         erddap=[(CW_NOAA, "noaacwSMOSsss3day", "sss", 2, ["(0.0)"], "2011-01", "2025-12")]),
+         definition="How salty the top layer of the sea is. Satellites only measure it since 2015.",
+         source="NASA SMAP daily, every third day averaged to months (NOAA CoastWatch ERDDAP), from 2016",
+         # SMOS (2010+) was tried: almost no valid Mediterranean pixels (radio interference), biased low.
+         erddap=[(CW_NOAA, "noaacwSMAPsssDaily", "sss", 2, ["(0.0)"], "2016-01", "2025-12", 3)]),
     dict(id="aod", name="Aerosol optical depth", unit="", decimals=3,
          definition="How hazy the air is from dust, smoke and pollution. 0 is perfectly clear.",
          source="NASA MERRA-2 monthly (M2TMNXAER, TOTEXTTAU)",
@@ -191,7 +192,8 @@ def fetch_erddap(sources: list) -> np.ndarray:
     snapped to the nearest cell, as backend/recolector.py does. A later source only
     fills months/cells the earlier ones left empty (e.g. NRT after science quality)."""
     result = empty()
-    for server, dataset, field, stride, extra, first, last in sources:
+    for server, dataset, field, stride, extra, first, last, *tstride in sources:
+        tstride = tstride[0] if tstride else 1
         total, count = np.zeros_like(result), np.zeros_like(result)
         lat_desc = True
         for year in range(max(int(first[:4]), YEARS[0]), min(int(last[:4]), YEARS[-1]) + 1):
@@ -200,7 +202,7 @@ def fetch_erddap(sources: list) -> np.ndarray:
             rows = None
             for _ in range(2):                    # latitude order differs per dataset: try both
                 lat = f"(46.0):{stride}:(30.0)" if lat_desc else f"(30.0):{stride}:(46.0)"
-                dims = [f"({t0}T00:00:00Z):1:({t1}T23:59:59Z)", *extra, lat, f"(-6.0):{stride}:(36.5)"]
+                dims = [f"({t0}T00:00:00Z):{tstride}:({t1}T23:59:59Z)", *extra, lat, f"(-6.0):{stride}:(36.5)"]
                 url = f"{server}/griddap/{dataset}.json?{field}" + "".join(f"[{d}]" for d in dims)
                 r = _get(url, timeout=600)
                 if r.status_code == 200:
