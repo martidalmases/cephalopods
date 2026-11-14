@@ -12,7 +12,7 @@
 <div class="app" id="app">
 
   <aside class="side" aria-label="Data">
-    <div class="logo"><span class="logo-box">logo</span><span class="logo-name">Trend Detective</span></div>
+    <div class="logo"><img class="logo-img" src="logo.png" alt="Team logo: a nautilus"><span class="logo-name">Trend Detective</span></div>
     <div class="side-body">
       <p class="flag" id="synthetic-flag" hidden>Synthetic data. Not NASA measurements.</p>
       <section>
@@ -47,6 +47,7 @@
 
     <div class="row" id="row">
       <main class="main">
+        <div class="legend" id="legend"></div>
         <div class="stage" id="stage">
           <canvas id="view" tabindex="0" aria-label="Main visualisation"></canvas>
           <p class="loading" id="loading">Loading data…</p>
@@ -58,7 +59,6 @@
           <button type="button" class="round" id="down" aria-label="Next layer">&#9660;</button>
           <span class="fact dim" id="stack-hint"></span>
         </div>
-        <div class="legend" id="legend"></div>
       </main>
 
       <aside class="panel" id="panel" aria-label="Graphs">
