@@ -38,6 +38,7 @@ from scipy import stats
 
 import almacen
 import especies
+import tendencias
 
 log = logging.getLogger("exportar_trends")
 
@@ -139,26 +140,35 @@ def trend_stats(values: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     return b * 10, np.nan_to_num(p, nan=1.0)
 
 
-def _rnd(a, d: int) -> list[float]:
-    return [round(float(v), d) for v in np.asarray(a).ravel()]
+def _rnd(a, d: int) -> list[float | None]:
+    return [round(float(v), d) if np.isfinite(v) else None for v in np.asarray(a, dtype=float).ravel()]
 
 
 def _escribir_variable(carpeta: Path, var: dict, values: np.ndarray, lat_celdas: np.ndarray) -> None:
-    slope, p = trend_stats(values)
+    """Same trend method as the rest of the project (tendencias.py): Sen's slope, modified Mann-Kendall,
+    Benjamini-Hochberg over the cells of the map. A variable that starts later than the set (a satellite)
+    has NaN in the first years: its trend uses the years it has."""
+    hay = np.isfinite(values).any(axis=1)
+    i0 = int(np.argmax(hay))                                        # first year with data
+    slope, p, _ = tendencias.tendencias(values[i0:])
+    q = tendencias.fdr(p)
     w = np.cos(np.deg2rad(lat_celdas))
-    regional = (values * w).sum(axis=1) / w.sum()
-    rs, rp = trend_stats(regional[:, None])
-    anom = values - values.mean(axis=0)
+    ok = np.isfinite(values)
+    with np.errstate(invalid="ignore"):
+        regional = np.where(ok, values, 0).dot(w) / (ok * w).sum(axis=1)   # NaN in the empty years
+    rs, rp = tendencias.tendencia(regional[i0:])
+    with np.errstate(invalid="ignore"):
+        anom = values - np.nanmean(values, axis=0)
     d = var["decimals"]
     doc = {
         "id": var["id"],
         "values": [_rnd(fila, d) for fila in values],
-        "trend": {"slope_per_decade": _rnd(slope, d + 1), "p": _rnd(p, 4),
-                  "method": "least-squares slope, two-sided t-test"},
-        "regional": {"mean": _rnd(regional, d + 1), "slope_per_decade": round(float(rs[0]), d + 1),
-                     "p": round(float(rp[0]), 4)},
-        "scale": {"anomaly": round(float(np.percentile(np.abs(anom), 98)), d + 1) or 10 ** -d,
-                  "slope": round(float(np.percentile(np.abs(slope), 98)), d + 1) or 10 ** -d},
+        "trend": {"slope_per_decade": _rnd(slope, d + 1), "p": _rnd(p, 4), "p_adj": _rnd(q, 4),
+                  "method": tendencias.METODO},
+        "regional": {"mean": _rnd(regional, d + 1), "slope_per_decade": round(float(rs), d + 1) if np.isfinite(rs) else None,
+                     "p": round(float(rp), 4), "p_adj": round(float(rp), 4)},
+        "scale": {"anomaly": round(float(np.nanpercentile(np.abs(anom), 98)), d + 1) or 10 ** -d,
+                  "slope": round(float(np.nanpercentile(np.abs(slope), 98)), d + 1) or 10 ** -d},
     }
     (carpeta / f"{var['id']}.json").write_text(json.dumps(doc, separators=(",", ":")))
 
@@ -219,14 +229,17 @@ def exportar() -> list[dict]:
                     k -= 1
                 inicio[vid] = int(anios[k])
         for desde in sorted(set(inicio.values())):
-            variables = [v for v in VARIABLES if inicio.get(v["id"], 9999) <= desde]
+            enteras = [v for v in VARIABLES if inicio.get(v["id"], 9999) <= desde]
             k0 = int(np.searchsorted(anios, desde))
-            if len(anios) - k0 < ANIOS_MINIMOS or not variables:
+            if len(anios) - k0 < ANIOS_MINIMOS or not enteras:
                 continue
-            # Celdas de mar con serie completa en todas las variables del conjunto.
+            # Celdas de mar con serie completa en todas las variables que cubren el conjunto entero.
             completas = mascara.copy()
-            for v in variables:
+            for v in enteras:
                 completas &= np.isfinite(datos[v["id"]][k0:]).all(axis=0)
+            # Las que empiezan después (satélites) entran también, vacías antes de su primer año.
+            variables = enteras + [v for v in VARIABLES if v["id"] in inicio and inicio[v["id"]] > desde
+                                   and len(anios) - int(np.searchsorted(anios, inicio[v["id"]])) >= ANIOS_MINIMOS]
             if completas.sum() < 10:
                 continue
             nombre = f"{r}-{desde}"
