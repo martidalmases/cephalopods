@@ -98,7 +98,8 @@ var trendRow = $("row");
 var row = el("div", "row"); row.id = "sp-row"; row.hidden = true;
 row.innerHTML =
   '<main class="main"><div class="legend" id="sp-legend"></div>' +
-  '<div class="stage"><canvas id="sp-map" aria-label="Habitat suitability map of the Mediterranean"></canvas><p class="loading" id="sp-status">Loading…</p></div>' +
+  '<div class="stage"><canvas id="sp-map" aria-label="Habitat suitability map of the Mediterranean"></canvas><div class="sp-wait" id="sp-status" role="status" aria-live="polite" hidden><div class="sp-card">' +
+  '<p id="sp-status-title"></p><p class="fact dim" id="sp-status-text"></p><div class="sp-bar"><i></i></div><p class="sp-time" id="sp-status-time"></p></div></div></div>' +
   '<div class="stackbar"><button type="button" class="ghost" id="sp-back" hidden>&larr; Back to stack</button>' +
   '<button type="button" class="round" id="sp-prev" aria-label="Previous year">&#9664;</button>' +
   '<select id="sp-year" class="sp-select" aria-label="Year"></select>' +
@@ -185,15 +186,16 @@ function loadList(select) {
 
 function show(name) {
   state.species = name;
-  status("Computing " + name + "… The first request for a species can take up to a minute (its sightings are downloaded from OBIS).");
+  loading = name;
+  status("Computing " + name, "A species that is not stored yet takes up to a minute: its sightings are downloaded from OBIS and matched to the sea conditions of every year.", true);
   return load(name).then(function (d) {
     if (state.species !== name) return;
     state.data = d; state.species = d.nombre; if (!d.principal) remember(d.nombre);
     if (!d.idoneidad_chl) state.layer = "temp";
     var years = layerYears(d);
     if (!state.year || years.indexOf(state.year) < 0) state.year = years[years.length - 1];
-    status(""); panel(); refresh(); return loadList(d.nombre);
-  }).catch(function (e) { status("Could not compute " + name + ": " + e.message); });
+    loading = null; status(""); panel(); refresh(); return loadList(d.nombre);
+  }).catch(function (e) { if (state.species === name) { loading = null; status("Could not compute " + name, e.message.replace(/no está en OBIS/, "is not in OBIS. Check the spelling of the scientific name.")); } });
 }
 
 function prepare(d) {                          // lookups used by the maps
@@ -212,7 +214,18 @@ function prepare(d) {                          // lookups used by the maps
   });
 }
 
-function status(t) { $("sp-status").textContent = t; $("sp-status").hidden = !t; }
+// A card over the map: title, details and, while waiting, a moving bar with the seconds spent. The backend
+// does not report progress for one species, so the bar shows activity, not a percentage.
+var waitTimer = 0, waitKey = "", loading = null;
+function status(title, text, busy) {
+  var box = $("sp-status"), key = [title, text, busy].join("|");
+  if (key === waitKey) return; waitKey = key;
+  box.hidden = !title; box.classList.toggle("busy", !!busy);
+  $("sp-status-title").textContent = title || ""; $("sp-status-text").textContent = text || "";
+  clearInterval(waitTimer); $("sp-status-time").textContent = "";
+  if (title && busy) { var t0 = Date.now(); waitTimer = setInterval(function () { $("sp-status-time").textContent = Math.round((Date.now() - t0) / 1000) + " s"; }, 1000); }
+}
+function mapStatus(title, busy) { if (!loading) status(title, "", busy); }   // map messages never hide a species that is computing
 function layerYears(d) { return state.layer === "chl" && d.idoneidad_chl ? d.idoneidad_chl.anios : d.anios; }
 function layerValues(d, year) { var ys = layerYears(d), rows = state.layer === "chl" && d.idoneidad_chl ? d.idoneidad_chl.valores : d.idoneidad; return rows[ys.indexOf(year)]; }
 function yearIn(d, y) { var ys = layerYears(d); return ys.indexOf(y) >= 0 ? y : y > ys[ys.length - 1] ? ys[ys.length - 1] : ys[0]; }
@@ -386,7 +399,7 @@ function bivFor(d) {                     // per cell classes of the combined cha
     cell.forEach(function (c, k) { if (c) sea[k] = c.index < i1 ? 0 : c.index < i2 ? 1 : 2; });
     d.biv = { hab: hab, sea: sea, cell: cell, cuts: [i1, i2], period: [env.years[0], env.years[env.years.length - 1]] };
     refresh();
-  }).catch(function (e) { delete d.biv; status("Analysis not available: " + e.message); });
+  }).catch(function (e) { delete d.biv; status("Analysis not available", e.message); });
   return null;
 }
 
@@ -503,13 +516,13 @@ function drawStack(g, w, h, d) {         // every layer is a flat map slanted wi
     tag(D ? "seen in " + (D.seenYear[y] || 0) + " cells in " + y : "loading…", c[1][0], c[1][1] - 30, { align: "right", size: 11.5, mono: true });
     hits[i] = { L: L, top: top, fw: fw, fh: fh, ox: ox };
   }
-  status(missing ? "Loading species…" : "");
+  mapStatus(missing ? "Loading species…" : "", true);
 }
 
 function drawFlat(g, w, h, d, kind) {    // one map with degree labels
   var r = d.region, nx = r.nx, ny = r.ny, s = Math.min((w - 90) / nx, (h - 80) / ny), ox = (w - nx * s) / 2 + 10, oy = (h - ny * s) / 2;
   geom = { s: s, ox: ox, oy: oy };
-  if (kind === "biv" && !bivFor(d)) status("Computing the combined change…"); else status("");
+  if (kind === "biv" && !bivFor(d)) mapStatus("Computing the combined change…", true); else mapStatus("");
   g.imageSmoothingEnabled = false; g.drawImage(mapImage(d, kind, kind === "suit" ? layerValues(d, state.year) : null), ox, oy, nx * s, ny * s);
   if (kind === "trend") {
     var t = d.tendencia_celdas; g.fillStyle = hatchPattern(g);
@@ -653,8 +666,8 @@ function start() {
   loadList().then(function (list) {
     var first = wanted ? { nombre: wanted } : list.filter(function (sp) { return sp.nombre === "Pterois miles"; })[0] || list[0];
     if (first) show(first.nombre);
-    else status("No species stored yet. Type a scientific name on the left.");
-  }).catch(function (e) { status("The species service is not available right now (" + e.message + ")."); });
+    else status("No species stored yet", "Type a scientific name on the left.");
+  }).catch(function (e) { status("The species service is not available right now", e.message); });
 }
 
 /* ---------------- Variables page: choose the data set (region + period) ---------------- */
