@@ -251,6 +251,22 @@ function blit(g, M, img, alpha) {
   if (alpha <= 0.01) return;
   g.save(); g.globalAlpha = alpha; g.transform(M[0], M[1], M[2], M[3], M[4], M[5]); g.imageSmoothingEnabled = false; g.drawImage(img, 0, 0); g.restore();
 }
+var coastPath = null;                      // sea/land cell edges in grid units, built once
+function coast(g, M, width) {              // line around the sea, so pale "no change" cells do not read as land
+  var f, i, j, p;
+  if (!coastPath) {
+    coastPath = new Path2D();
+    for (f = 0; f < nx * ny; f++) {
+      if (cellOf[f] < 0) continue; i = f % nx; j = Math.floor(f / nx);
+      if (i > 0 && cellOf[f - 1] < 0) { coastPath.moveTo(i, j); coastPath.lineTo(i, j + 1); }
+      if (i < nx - 1 && cellOf[f + 1] < 0) { coastPath.moveTo(i + 1, j); coastPath.lineTo(i + 1, j + 1); }
+      if (j > 0 && cellOf[f - nx] < 0) { coastPath.moveTo(i, j); coastPath.lineTo(i + 1, j); }
+      if (j < ny - 1 && cellOf[f + nx] < 0) { coastPath.moveTo(i, j + 1); coastPath.lineTo(i + 1, j + 1); }
+    }
+  }
+  p = new Path2D(); p.addPath(coastPath, new DOMMatrix(M));   // transform the path, not the pen: constant line width
+  g.strokeStyle = C["ink-2"]; g.lineWidth = width; g.stroke(p);
+}
 function drawSelection(g, M, alpha) {
   var s = state.sel; g.save(); g.globalAlpha = alpha;
   if (s.type === "point") { var f = meta.ocean_index[s.cell], p = apply(M, f % nx + 0.5, Math.floor(f / nx) + 0.5);
@@ -277,6 +293,7 @@ function drawMain() {
     blit(g, M, layerImage(sl.layer, true), fade * (1 - sl.w) * 0.6);
     blit(g, M, layerImage(sl.layer, false), fade * sl.w);
     g.save(); g.globalAlpha = fade * (0.35 + 0.65 * sl.w);
+    coast(g, M, 0.6);
     quad(g, M, 0, 0, nx, ny); g.strokeStyle = sel ? C.ink : C["ink-2"]; g.lineWidth = sel ? 2 : 0.8; g.stroke();
     var left = apply(M, 0, ny), right = apply(M, nx, 0);          // name under the left corner, reading above the right corner
     text(g, sl.layer.label, left[0], left[1] + 30, { color: C.ink, weight: sel ? "500" : "400", size: 13 });
@@ -287,7 +304,7 @@ function drawMain() {
   if (state.focus && view.focusT > 0) {
     if (view.focusT >= 1) drawFlat(g, FM, state.focus, f.w, f.h);
     else { var A = isoMatrix(G, view.focusPos), M2 = A.map(function (a, k) { return a + (FM[k] - a) * t; });
-      blit(g, M2, layerImage(state.focus, false), 1); quad(g, M2, 0, 0, nx, ny); g.strokeStyle = C.ink; g.lineWidth = 1.5; g.stroke(); }
+      blit(g, M2, layerImage(state.focus, false), 1); coast(g, M2, 0.8); quad(g, M2, 0, 0, nx, ny); g.strokeStyle = C.ink; g.lineWidth = 1.5; g.stroke(); }
   }
 }
 function layerInfo(L) {                      // reading for the current selection, shown at the right of each layer
@@ -309,6 +326,7 @@ function drawFlat(g, M, layer, w, h) {       // front-facing map, clipped to a f
     for (k = 0; k < nOcean; k++) if (d.trend.p[k] === null || d.trend.p[k] >= ALPHA) { var fl = meta.ocean_index[k], cx = x0 + (fl % nx) * sc, cy = y0 + Math.floor(fl / nx) * sc;
       if (cx + sc < fx || cx > fx + fw || cy + sc < fy || cy > fy + fh) continue; g.fillRect(cx, cy, sc + 0.5, sc + 0.5); }
   }
+  coast(g, M, 0.8);
   drawSelection(g, M, 1);
   if (drag && drag.moved) { var a = drag.a, b = drag.b; quad(g, M, Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[0], b[0]) + 1, Math.max(a[1], b[1]) + 1);
     g.fillStyle = C.probe; g.globalAlpha = 0.18; g.fill(); g.globalAlpha = 1; g.strokeStyle = C.probe; g.lineWidth = 1.5; g.setLineDash([4, 3]); g.stroke(); g.setLineDash([]); }
