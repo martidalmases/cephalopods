@@ -443,7 +443,10 @@ function renderAnalysis() {
   if (state.sel.type !== "region") { var c = el("button", "ghost small", "Clear selection"); c.type = "button"; c.addEventListener("click", function () { setSel({ type: "region" }); }); head.appendChild(c); }
   root.appendChild(head);
 
-  var left = el("section"); left.appendChild(el("h2", "", "Time series of the ticked variables"));
+  var left = el("section"), seriesHead = el("div", "series-head");
+  seriesHead.appendChild(el("h2", "", "Time series of the ticked variables"));
+  seriesHead.appendChild(el("p", "note", "Yellow band: 90% prediction interval (forecast uncertainty)."));
+  left.appendChild(seriesHead);
   root.appendChild(left); shownSorted().forEach(function (id) { miniGraph(left, id, true); });
 
   var right = el("section"); root.appendChild(right);
