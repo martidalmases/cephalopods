@@ -406,7 +406,8 @@ def _mes_oisst(mes: date) -> np.ndarray:
     k = almacen.indice_mes(mes) - almacen.indice_mes(_mes(OISST["desde"]))
     franjas = []
     for a in range(0, 720, 180):
-        r = _get(f"{OISST['url']}.dods?sst[{k}:1:{k}][{a}:1:{a + 179}][0:1:1439]", timeout=300)
+        # El servidor de NOAA limita peticiones (429) y a veces falla (502): hasta 6 intentos (~4 min).
+        r = _get(f"{OISST['url']}.dods?sst[{k}:1:{k}][{a}:1:{a + 179}][0:1:1439]", intentos=6, timeout=300)
         if r.status_code != 200:
             raise ErrorDatos(f"OISST HTTP {r.status_code}: {r.text[:200]}")
         cuerpo = r.content

@@ -34,6 +34,7 @@ datos/
 | `almacen.py` | The two global grids (`BASE` 1°, `FINA` 0.5°), monthly axis, regridding from any source grid, Zarr and xarray. |
 | `especies.py` | Yearly means, environmental niche and habitat suitability of each species per year. |
 | `exportar_trends.py` | Exports the real data in the format of the Trends screen. |
+| `pronostico.py` | 5-year forecast of a yearly series for the Analysis screen (`POST /api/forecast`, Darts). |
 | `api.py` | FastAPI API for the website. Docs at `/docs`. |
 | `datos_mediterraneo.py` | Live daily query for one point (tests and diagnostics) and catalogue of names and units. |
 | `compactar.py` | One-off pass that empties land cells loaded by older versions (frees disk). |
@@ -145,6 +146,15 @@ The world uses 2° cells so that each variable weighs less than 1 MB compressed.
 picker in the «Region» section changes the set (`?datos=mundo-1980`), and `?datos=ficheros` shows
 the team's static files in `trend-detective/data/` (Mediterranean, 2003–2025, `pipeline/fetch_real_data.py`).
 
+## Forecasts
+
+`POST /api/forecast` receives a yearly series (`{"years": [...], "values": [...]}`, 8–100 years, gaps
+as `null`) and returns a 5-year forecast with its 90 % interval: damped additive exponential
+smoothing from Darts, without seasonality. Gaps of up to two years are interpolated. Darts is
+installed as `u8darts`, without PyTorch (the `darts` package pulls it in, several GB). The first
+call imports Darts (~3 s); later calls take a few hundredths of a second, with ~220 MB of RAM per API
+process.
+
 ## Running locally
 
 ```bash
@@ -243,6 +253,7 @@ datos/
 | `almacen.py` | Las dos rejillas mundiales (`BASE` 1°, `FINA` 0,5°), eje mensual, paso de cualquier rejilla a las nuestras, Zarr y xarray. |
 | `especies.py` | Medias anuales, nicho ambiental e idoneidad del hábitat de cada especie por año. |
 | `exportar_trends.py` | Exporta los datos reales al formato de la pantalla Trends. |
+| `pronostico.py` | Predicción a 5 años de una serie anual para la pantalla Analysis (`POST /api/forecast`, Darts). |
 | `api.py` | API FastAPI para la web. Documentación en `/docs`. |
 | `datos_mediterraneo.py` | Consulta en vivo y diaria de un punto (pruebas y diagnóstico) y catálogo de nombres y unidades. |
 | `compactar.py` | Pasada única que vacía las celdas de tierra cargadas por versiones anteriores (libera disco). |
@@ -355,6 +366,15 @@ hay un **conjunto por región y por año de inicio**, con las variables que cubr
 El mundo va a 2° para que cada variable pese menos de 1 MB comprimida. En la web, el selector de
 la sección «Region» cambia de conjunto (`?datos=mundo-1980`), y `?datos=ficheros` muestra los
 ficheros estáticos del equipo en `trend-detective/data/` (Mediterráneo, 2003–2025, `pipeline/fetch_real_data.py`).
+
+## Predicciones
+
+`POST /api/forecast` recibe una serie anual (`{"years": [...], "values": [...]}`, de 8 a 100 años, con
+los huecos como `null`) y devuelve una predicción a 5 años con su intervalo del 90 %: suavizado
+exponencial aditivo amortiguado de Darts, sin estacionalidad. Los huecos de hasta dos años se
+interpolan. Darts se instala como `u8darts`, sin PyTorch (el paquete `darts` lo arrastra, varios GB).
+La primera llamada carga Darts (~3 s); las siguientes tardan unas centésimas de segundo, con ~220 MB
+de RAM por proceso de la API.
 
 ## Prueba en local
 
