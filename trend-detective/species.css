@@ -90,3 +90,5 @@ body,.side,.options,.legend,.stackbar,.panel{transition:background-color .35s ea
 /* Link to the method article, at the right end of the top bar. */
 .options .methods-link{margin-left:auto;align-self:center;white-space:nowrap;font-size:.86rem;font-weight:500;color:var(--accent);text-decoration:none}
 .options .methods-link:hover{text-decoration:underline;text-underline-offset:3px}
+/* Explorer sidebar: the site name fits on one line. */
+.side .logo-name{font-size:.98rem;white-space:nowrap}
