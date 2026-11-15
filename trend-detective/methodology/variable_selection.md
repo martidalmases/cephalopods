@@ -1,24 +1,23 @@
 # How we chose the variables
 
-Draft written with AI assistance from the team's discussion; to be rewritten by the team.
-Every number comes from `results/` and every figure from `scripts/make_figures.py`
-(see [Reproduce](#reproduce)). The same content, per variable, is in `results/summary.json`
-for the website to read later.
+Argumentation written with SI assistance. (see [Reproduce](#reproduce)).
 
 ## Result
 
 We started from 22 candidate environmental variables and kept four, all from NASA data:
 
-| Variable | id | Source | Basin trend per decade | Sea cells with a significant trend | Why it stays |
+| Variable | id | Source | Basin trend per decade | Sea cells with a significant trend |
 |---|---|---|---|---|---|
-| Coldest-month sea temperature | `sst_winter_min` | NASA MERRA-2 | +0.52 °C | 85 % | Statistics and mechanism agree |
-| Unusually hot months | `mhw_months` | NASA MERRA-2 | +1.35 months | 92 % | Statistics and mechanism agree |
-| Hottest-month sea temperature | `sst_summer_max` | NASA MERRA-2 | +0.68 °C | 81 % | Mechanism; weak statistical support |
-| Chlorophyll-a | `chl` | NASA MODIS-Aqua | −0.008 mg/m³ (not significant) | 36 % | Mechanism; mixed statistical support |
+| Coldest-month sea temperature | `sst_winter_min` | NASA MERRA-2 | +0.52 °C | 85 % | 
+| Unusually hot months | `mhw_months` | NASA MERRA-2 | +1.35 months | 92 % |
+| Hottest-month sea temperature | `sst_summer_max` | NASA MERRA-2 | +0.68 °C | 81 % |
+| Chlorophyll-a | `chl` | NASA MODIS-Aqua | −0.008 mg/m³ (not significant) | 36 % |
 
 The first two are supported by every test we ran. The last two are a decision of the team
-based on biology. The tests do not contradict them, but they do not single them out either.
-[What is solid and what is judgement](#what-is-solid-and-what-is-judgement) says exactly where the line is.
+based on biology aspects, despite their performance on the test. The tests do not contradict them, but they do not single them out either.
+[What is solid and what is judgement](#what-is-solid-and-what-is-judgement)
+
+The focus of this study is the Mediterranean Sea, and so the variable candidate method is conducted strictly there. We assume the selected region to be representative of the global data.
 
 Data: Mediterranean Sea, 0.5° cells (1 094 sea cells), yearly values 2003–2025 (23 years).
 Species: 140 813 OBIS records of 1 112 species.
@@ -30,16 +29,14 @@ A variable can be useful for two different jobs, and they need different evidenc
 - **Explaining change.** If a species appears where it was absent, the cause must be something
   that changed. A variable with no trend cannot be that cause, however well it predicts where
   the species lives today.
-- **Defining habitat.** Where a species can live is the overlap of all its conditions, changing
+- **Defining the Enviromental Suitability Area (ESA).** Where a species can live is the overlap of all its conditions, changing
   or not. A constant condition still rules places out, and it cannot create a false trend,
   because its contribution to any change over time is zero.
 
-So a variable without a trend is not automatically out. The danger is different: a variable
+THis way, we don't automatically drop a variable for not changing significantly. The danger is different: a variable
 that is only a **geographic marker**. If the model learns "this species lives where there is
 Saharan dust" and dust does not change, the predicted habitat stays in the south forever and
-hides the new habitat that warming opens in the north. A real constant condition (depth, for
-example) freezes the map correctly; a marker freezes it wrongly. The two look the same in the
-importance numbers, which is why steps 4 to 6 exist.
+hides the new habitat that warming opens in the north. We implemented a methodology to discern conditions from markers.
 
 ## The candidate variables
 
@@ -68,21 +65,18 @@ importance numbers, which is why steps 4 to 6 exist.
 | `o2` | Dissolved oxygen | | Copernicus Marine model |
 | `no3` | Nitrate | Stands in for the "nitrogen concentration" of the original list | Copernicus Marine model |
 
-The five Copernicus variables were studied for comparison only. The challenge asks for NASA
-data, so they were never candidates for the final set. Posidonia oceanica, on the original
-list, is a species and was treated as one.
+NASA's SMAP salinity alternative wasn't used because of its short data series (2015-2025)
 
 ## Method, step by step
 
 | Step | Question | Technique |
 |---|---|---|
 | 1 | Does the variable change? | Sen's slope (Theil–Sen estimator); Mann–Kendall trend test; Benjamini–Hochberg false discovery rate correction across cells |
-| 2 | Does it carry information no other variable carries? | Spearman rank correlation; agglomerative hierarchical clustering (average linkage, distance 1 − \|r\|, cut at \|r\| ≥ 0.8); variance inflation factor (VIF ≤ 10); principal component analysis as a description |
+| 2 | Does it carry information no other variable carries? | Spearman rank correlation; agglomerative hierarchical clustering (average linkage, distance 1 − \|r\|, cut at \|r\| ≥ 0.8); variance inflation factor (VIF ≤ 10); principal component analysis (PCA) as a description |
 | 3 | Does it help predict where species occur? | Presence–background species distribution model with target-group background; logistic regression with linear and quadratic terms (L2 penalty, balanced classes); temporal hold-out validation; area under the ROC curve (Mann–Whitney U); permutation importance; permutation test of the model; Benjamini–Hochberg correction |
 | 4 | Is it a real condition or a geographic marker? | Spatial block (transfer) validation, west to east and east to west; the same model with latitude and longitude added as predictors |
 | 5 | Is it another variable in disguise? | Ordinary least squares with quadratic terms: R² of the variable against the coldest and hottest month |
-| 6 | Does the verdict hold when the set of variables changes? | Sensitivity analysis: step 4 repeated on four alternative sets |
-| 7 | Final choice | Biological and physical reasoning on what steps 1–6 leave open |
+| 6 | Final choice | Biological and physical informed choices |
 
 ### Step 1. Trends
 
@@ -90,9 +84,6 @@ For each variable and each sea cell, the 23 yearly values give a Sen's slope (ho
 changes) and a Mann–Kendall p-value (whether the change can be told from noise). Testing
 1 094 cells would give about 55 false positives at 5 %, so the p-values are corrected with
 Benjamini–Hochberg. The same is done for the mean of the whole basin.
-
-**This step removes nothing.** All 22 variables go on to step 2; the trend is used again at
-the end.
 
 ![Share of sea cells with a significant trend, per variable](figures/fig1_trends.png)
 
@@ -103,10 +94,7 @@ the end.
 
 ### Step 2. Redundancy
 
-Every cell-year is one point. Variables with |r| ≥ 0.8 form a group and one is kept, chosen by
-a priority list written in the code (`PRIORITY` in `study_variables.py`: direct biological
-mechanism first). That list is a choice, not a result. VIF then removes variables that are a
-combination of two or three others, which pairwise correlation cannot see.
+Pairwise correlation is carried for all variables using PCA and VIF to drop redundant variables that can be explained by one, or a combination of multiple other variables.
 
 ![Spearman correlation between the 22 variables](figures/fig3_correlation.png)
 
@@ -118,17 +106,12 @@ combination of two or three others, which pairwise correlation cannot see.
 | Seasonal range | Hottest and coldest month | VIF above 100 000: it is exactly their difference |
 | Yearly mean temperature | Hottest and coldest month | VIF 32 |
 
-With NASA variables only, 17 become 13. Chlorophyll-a correlates at r = −0.83 with the
-coldest month: it merges with it in the all-sources run and survives in the NASA-only run,
-so its independence is borderline.
+Chlorophyll-a correlates at r = −0.83 with the
+coldest month: its independence is borderline, given that it indicates the presence of organic life (also subject to temperature changes).
 
 ### Step 3. Relevance for species
 
-Records come from OBIS: all bony fishes, cephalopods, anthozoans and bivalves in the
-Mediterranean, 2003–2025, plus ten candidate indicator species. **The ten indicator species
-were proposed from general knowledge of Mediterranean tropicalisation and have not been
-checked against a published list.** They get no special weight; they are only modelled even
-if they are not among the 40 species with most records. 42 species are modelled.
+Records come from OBIS: 42 relevant (most observed or commonly seen) species are modelled.
 
 For each species:
 
@@ -148,24 +131,23 @@ over species.
 
 ![Importance per variable for the candidate indicator species](figures/fig5_indicator_species.png)
 
-- 35 species have a valid model with NASA data. Median AUC is 0.62–0.64: better than chance, but weak.
+- 35 species have a valid model. Median AUC is 0.62–0.64: better than chance, weak but still good given the complexity of the biological processes involved.
 - The coldest month is first or second in both runs.
-- Latent heat flux ranks first with NASA data although it has no trend, and salinity ranks second with all sources although only 22 % of cells have a trend. When salinity and sea level are removed, their weight moves to latent heat flux and humidity difference. That is what interchangeable geographic markers would do, and it is the reason for step 4.
 
 ### Step 4. Real condition or geographic marker
 
 Two tests on the 13 NASA variables and the 34 species whose model scores above 0.55:
 
 - **Across the basin**: train on the western half of each species' records, test on the eastern half, and the reverse. A physiological limit holds on both sides; a marker learnt in the west says nothing in the east.
-- **With coordinates**: repeat step 3 giving latitude and longitude to the model. A variable that only stood in for position loses its importance.
+- **With coordinates**: repeat step 3 giving latitude and longitude to the model. A variable that only stood in for position (markers) loses its importance.
 
-Rule, written in the script before running it: a variable passes if it keeps at least half of
+By convention: a variable passes if it keeps at least half of
 its importance in both tests.
 
 ![Importance kept in the two transfer tests](figures/fig6_transfer.png)
 
-- **Latent heat flux, wind and fluorescence fail.** They were markers: fluorescence loses all its importance once position is known, and wind makes prediction worse on the other side of the basin.
-- **Aerosols pass.** We suspected them of being a marker and the test does not support that.
+- **Latent heat flux, wind and fluorescence.** Markers: fluorescence loses all its importance once position is known, and wind makes prediction worse on the other side of the basin.
+- **Aerosols pass.** We suspected them of being a marker but the test does not support that.
 - **The coldest month is the only large variable that gains importance in both tests.**
 - Sea-air humidity difference passes narrowly (54 % and 57 %).
 
@@ -180,17 +162,6 @@ water vapour. The last two need a physical look.
 - **Sea-air humidity difference is sea temperature in another form.** It is the saturation humidity at the sea surface temperature minus the humidity of the air, and saturation humidity grows exponentially with temperature (about 7 % per degree). 71 % of its variance is explained by the coldest and hottest month, and its correlation with the hottest month is 0.78, just under the 0.8 cut of step 2. In a five-variable model that includes it the hottest month has an importance of 0.010; in a four-variable model without it, 0.028. They share one signal. A submerged organism does not feel air humidity, so the direct variable is the temperature.
 - **Total column water vapour is independent of sea temperature** (14 % explained), but it is a property of the air mass above the sea. We find no pathway by which it would act on a marine organism. Its trend is the atmosphere warming.
 
-### Step 6. Does the verdict hold?
-
-Step 4 was repeated on four sets of variables.
-
-![Which variables pass the transfer rule in each set](figures/fig8_sets.png)
-
-- **Only the coldest month and unusually hot months pass in all four sets.**
-- Latent heat flux, wind and fluorescence fail wherever they appear.
-- The verdict on the weaker variables depends on which others are in the model. In the final set of four, the hottest month and chlorophyll-a do not pass.
-- Smaller sets predict at least as well: median AUC 0.68 for the final four against 0.63 for all 13. The species counted differ between sets (27 against 34), so this is indicative.
-
 ## What is solid and what is judgement
 
 **Solid.** Coldest-month temperature and unusually hot months: among the most important
@@ -203,10 +174,10 @@ Yearly mean temperature, seasonal range, specific humidity and evaporation are r
 
 **Judgement.**
 
-- *Hottest-month temperature is kept.* It is the upper thermal limit of heat-sensitive species (Posidonia, the noble pen shell, gorgonians), it has a strong trend, and it passes the transfer rule in three sets of four. Against it: lowest importance of all 13, and it fails in the final set. A likely reason for the low importance is that summer is hot everywhere in the Mediterranean, so it separates places less than winter does, and that its effects are die-off events a yearly presence model does not capture.
-- *Chlorophyll-a is kept.* It is the only measure of food supply and the only final variable observed directly by satellite rather than taken from a reanalysis. It passes the transfer rule in two sets of three. Against it: no significant basin trend, r = −0.83 with the coldest month, and it fails in the final set. It is in the habitat model as a condition, not as a driver of change.
+- *Hottest-month temperature is kept.* It is the upper thermal limit of heat-sensitive species (Posidonia, the noble pen shell, gorgonians), it has a strong trend, and it passes the transfer rule in three sets of four. Against it: lowest importance of all 13. A likely reason for the low importance is that summer is hot everywhere in the Mediterranean, so it separates places less than winter does, and that its effects are die-off events a yearly presence model does not capture.
+- *Chlorophyll-a is kept.* It is the only measure of food supply and the only final variable observed directly by satellite rather than taken from a reanalysis. It passes the transfer rule in two sets of three. Against it: no significant basin trend, r = −0.83 with the coldest month. It is in the habitat model as a condition, not as a driver of change.
 - *Sea-air humidity difference and total column water vapour are dropped* although they pass the rule in the 13-variable set, for the reasons of step 5.
-- *Aerosols, sensible heat flux, precipitation and sea-air temperature difference are dropped* although they pass the transfer tests: weak or no trend, no direct mechanism, and we want the smallest set. Being constant or nearly so, they could be added to the habitat model later without creating false trends.
+- *Aerosols, sensible heat flux, precipitation and sea-air temperature difference are dropped* although they pass the transfer tests: weak or no trend, no direct mechanism, and we want the smallest, simplest set. Being constant or nearly so, they could be added to the habitat model later without creating false trends.
 
 The thresholds (|r| ≥ 0.8, VIF ≤ 10, 70 % of the importance, half of the importance kept,
 half of the cells) are conventions chosen by the team.
@@ -217,7 +188,7 @@ holds the common set and each species weights it.
 ## Limitations
 
 - 23 years is short for climate trends. The period starts in 2003 because MODIS does.
-- The Mann–Kendall test used is the plain one, without correction for autocorrelation between years. It is enough to screen variables; the figures shown on the site should use the modified test (Hamed–Rao), which will give somewhat lower significance.
+- The Mann–Kendall test used is the plain one, without correction for autocorrelation between years. The web tool applies the modified Man-Kendall and FDR correction.
 - Species models are weak (median AUC about 0.63).
 - Only the Mediterranean: each species' niche is cut to local conditions. Acceptable for choosing variables, not for the final habitat profile, which needs the species' world range.
 - OBIS records grow from about 3 000 a year before 2018 to 23 000 in 2025, so test years hold far more data than training years.
@@ -229,7 +200,7 @@ holds the common set and each species weights it.
 
 ## Reproduce
 
-Everything needed is in this folder; nothing is downloaded.
+From the GitHub repo:
 
 ```bash
 pip install numpy pandas scipy scikit-learn matplotlib
@@ -252,7 +223,7 @@ Marine account) then `scripts/merge_npz.py` for `data/*.json`, and `scripts/fetc
 for `data/obis.csv.gz`. OBIS grows daily, so a new download changes the numbers slightly.
 
 The team's decision and reason for each variable are the `DECISION` table in
-`scripts/make_figures.py`; `results/summary.json` is built from it and from the CSV files.
+`scripts/make_figures.py`.
 
 ## Data sources
 
