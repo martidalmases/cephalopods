@@ -422,7 +422,7 @@ function refresh() {
     var grid = '<span class="bi">'; [2, 1, 0].forEach(function (n) { [0, 1, 2].forEach(function (t) { grid += '<i style="background:' + (BI[n][t] || css("--mid")) + '" title="' + NOW_WORD[n] + ", " + TREND_WORD[t] + '"></i>'; }); });
     L.innerHTML = grid + '</span><span>rows, bottom to top: suitability of the last ' + NOW_YEARS + ' years below ' + d.umbral_idoneo + ' · up to 0.5 · above<br>columns, left to right: suitability falling · no significant trend · rising, since ' + d.anios[0] + '</span>' + land;
   } else L.innerHTML = '<span>Habitat suitability: 0 <span class="ramp sp"></span> 1</span>' +
-    (kind ? '<span><span class="sp-dot"></span>seen in ' + state.year + '</span><span><span class="sp-dot faint"></span>seen in other years</span>' : "") + land;
+    (kind ? '<span><span class="sp-dot"></span>seen in ' + state.year + '</span><span><span class="sp-dot faint"></span>seen in other years</span>' : '<span><span class="sp-dot"></span>seen in the year of each map</span>') + land;
   var yearBar = !kind || kind === "suit";
   $("sp-back").hidden = kind !== "suit";
   ["sp-prev", "sp-year", "sp-next"].forEach(function (id) { $(id).hidden = !yearBar; });
@@ -488,6 +488,14 @@ function drawStack(g, w, h, d) {         // every layer is a flat map slanted wi
     g.save(); g.transform(ISO.ux, ISO.uy, ISO.vx, ISO.vy, ox, top); g.imageSmoothingEnabled = false;
     if (D) g.drawImage(stackImage(D, y), 0, 0, fw, fh); else { missing++; g.fillStyle = css("--land"); g.fillRect(0, 0, fw, fh); }
     g.restore();
+    if (D) {                               // sightings of the layer's year: round dots placed with the slant
+      var nxD = D.region.nx; g.fillStyle = css("--probe"); g.strokeStyle = css("--sheet"); g.lineWidth = 0.8;
+      Object.keys(D.seen).forEach(function (flat) {
+        if (!D.seen[flat][y]) return;
+        var q = at((flat % nxD + 0.5) * s, (Math.floor(flat / nxD) + 0.5) * s, top);
+        g.beginPath(); g.arc(q[0], q[1], 2.4, 0, 7); g.fill(); g.stroke();
+      });
+    }
     var c = [at(0, 0, top), at(fw, 0, top), at(fw, fh, top), at(0, fh, top)];
     g.beginPath(); c.forEach(function (p, k) { if (k) g.lineTo(p[0], p[1]); else g.moveTo(p[0], p[1]); }); g.closePath();
     g.strokeStyle = css(L.sel ? "--ink" : "--ink-2"); g.lineWidth = L.sel ? 2 : 0.8; g.stroke();
