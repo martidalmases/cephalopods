@@ -102,6 +102,7 @@ trendRow.parentNode.appendChild(row);
 
 function setPage(p) {
   state.page = p;
+  document.documentElement.dataset.page = p;   // species.css colours the page by it
   pages.querySelectorAll("button").forEach(function (b) { b.setAttribute("aria-pressed", String(b.dataset.page === p)); });
   var sp = p === "species";
   trendRow.hidden = sp; trendSide.hidden = sp; $("screens").hidden = sp;
