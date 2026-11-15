@@ -2,7 +2,7 @@
 
 | Folder | What it is |
 |---|---|
-| [`backend/`](backend/) | Harvester and FastAPI service: monthly global ocean data since 1980 on 1° and 0.5° grids (NASA MERRA-2 and SMAP, NOAA OISST, NOAA ERDDAP MODIS), yearly species habitat suitability at 0.5° (OBIS) and the real data of the Trends screen. Deployment files in `backend/despliegue/`. Docs in English and Spanish. |
+| [`backend/`](backend/) | Harvester and FastAPI service: monthly global ocean data since 1980 (NASA MERRA-2 and SMAP, NOAA ERDDAP MODIS), yearly species habitat suitability (OBIS) and the real data of the Trends screen. Deployment files in `backend/despliegue/`. Docs in English and Spanish. |
 | [`trend-detective/`](trend-detective/) | Static web app to explore environmental trends as stacked map layers. Live at https://trend.cooking. |
 | [`notebooks/`](notebooks/) | Exploratory notebooks and scripts (species info, Giovanni API calls). |
 | [`tools/earthdata-auth/`](tools/earthdata-auth/) | Helper scripts that create local NASA Earthdata credentials (`~/.netrc`, `~/.dodsrc`, `~/.edl_token`). |
