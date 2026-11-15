@@ -8,7 +8,8 @@
 
 var API = "/api";      // same origin: nginx forwards /api/ to the backend
 var VARIABLE_NAMES = {
-  temperatura: "Surface temperature", salinidad: "Salinity", fitoplancton: "Chlorophyll (phytoplankton)",
+  sst_winter_min: "Winter minimum sea temperature", sst_summer_max: "Summer maximum sea temperature",
+  mhw_months: "Marine heatwave months", temperatura: "Surface temperature", salinidad: "Salinity", fitoplancton: "Chlorophyll (phytoplankton)",
   fluorescencia: "Chlorophyll fluorescence", dif_temp_mar_aire: "Sea–air temperature difference",
   evaporacion: "Evaporation", viento_velocidad: "Wind speed"
 };
@@ -70,8 +71,10 @@ side.innerHTML =
   '</select><p class="fact dim" id="sp-period">&nbsp;</p></section>' +
   '<section><h2>Species</h2><p class="fact dim">Stored species. Cephalopods are always ready.</p><ul class="varlist" id="sp-list"></ul></section>' +
   '<section class="sp-search"><h2>Find another species</h2>' +
-  '<input id="sp-find" list="sp-suggest" placeholder="Scientific name, e.g. Thunnus thynnus" autocomplete="off" aria-label="Scientific name">' +
-  '<datalist id="sp-suggest"></datalist><p class="fact dim">Computed on first request, then stored.</p></section>' +
+  '<div class="sp-combo"><input id="sp-find" placeholder="Scientific name, e.g. Thunnus thynnus" autocomplete="off" spellcheck="false" ' +
+  'role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="sp-suggest" aria-label="Scientific name">' +
+  '<ul id="sp-suggest" role="listbox" hidden></ul></div>' +
+  '<p class="fact dim">Names and record counts from OBIS. Computed on first request, then stored.</p></section>' +
   '<section><h2>What is this?</h2><p class="fact dim">Each sighting (OBIS, since 1980) is matched to the sea conditions of its place and year ' +
   '(monthly data averaged per year). Habitat suitability (0 to 1) says how close each place and year is to the conditions where the species has been seen. ' +
   'It is a statistical match, not proof of cause.</p></section>';
@@ -175,7 +178,7 @@ function panel() {
 
   $("sp-niche").innerHTML = Object.keys(d.nicho).map(function (v) {
     var n = d.nicho[v], mark = r.variables_indice.indexOf(v) >= 0 ? " *" : "";
-    var units = n.unidades.replace("día", "day");   // backend units are written in Spanish
+    var units = n.unidades.replace("día", "day").replace("meses", "months");   // backend units are in Spanish
     return "<tr><td>" + varName(v) + mark + '</td><td class="num">' + fmt(n.p5) + " – " + fmt(n.p95) + " " + units +
            '</td><td class="num">' + fmt(n.p50) + "</td></tr>";
   }).join("");
@@ -210,10 +213,14 @@ var canvas = $("sp-map"), geom = null, shown = null, hits = [];
 var ISO = { ux: 1, uy: 0.10, vx: -0.35, vy: 0.30 };   // same slant as the Trends stack (app.js)
 var loaded = {}, pending = {}, images = {}, trends = {};
 
+function mapUrl(name, year, view) {      // the backend cuts the map to the region shown (the world at 0.5° is 3.5 MB)
+  var V = VIEWS[view], box = view === "world" ? "" : "&lat_min=" + V.lat0 + "&lat_max=" + V.lat1 + "&lon_min=" + V.lon0 + "&lon_max=" + V.lon1;
+  return "/especies/" + encodeURIComponent(name) + "/mapa?anio=" + year + box;
+}
 function need(name, year) {              // the backend map if it is here; else ask for it and redraw when it arrives
-  var key = name + "|" + year, m = loaded[key];
+  var key = name + "|" + year + "|" + state.view, m = loaded[key];
   if (m) { delete loaded[key]; loaded[key] = m; return m; }      // re-insert: the oldest key is the least used
-  if (!pending[key]) pending[key] = api("/especies/" + encodeURIComponent(name) + "/mapa?anio=" + year).then(function (m) {
+  if (!pending[key]) pending[key] = api(mapUrl(name, year, state.view)).then(function (m) {
     STEP = m.paso_grados || STEP; delete pending[key];
     var keys = Object.keys(loaded); if (keys.length >= 16) delete loaded[keys[0]];   // a world map is about 1 MB
     m.seen = m.avistamientos.reduce(function (n, a) { return n + a[3]; }, 0);
@@ -222,7 +229,7 @@ function need(name, year) {              // the backend map if it is here; else 
   return null;
 }
 
-function slopes(name, from, what) {      // promise: change of suitability per decade in every cell, years >= from
+function slopes(name, from, what, view) {   // promise: change of suitability per decade in every cell, years >= from
   // ponytail: least-squares slope from at most 12 evenly spaced years, not every year (each year is a 1 MB
   // download); use all years when the backend offers the trend map as one endpoint.
   var all = state.data.anios.filter(function (y) { return y >= from; }), step = Math.ceil(all.length / 12), acc = {}, done = 0;
@@ -230,7 +237,7 @@ function slopes(name, from, what) {      // promise: change of suitability per d
   function next() {
     if (done === ys.length) return;
     if (state.species === name) status(what + ": map " + (done + 1) + " of " + ys.length + "…");
-    return api("/especies/" + encodeURIComponent(name) + "/mapa?anio=" + ys[done]).then(function (m) {
+    return api(mapUrl(name, ys[done], view)).then(function (m) {
       STEP = m.paso_grados || STEP; var x = ys[done] - ys[0];
       m.puntos.forEach(function (p) {
         var k = p[0] + "," + p[1], a = acc[k] || (acc[k] = [p[0], p[1], 0, 0, 0, 0, 0]);
@@ -250,24 +257,24 @@ function slopes(name, from, what) {      // promise: change of suitability per d
 }
 function quantile(list, q) { var s = list.slice().sort(function (a, b) { return a - b; }); return s[Math.floor((s.length - 1) * q)] || 0; }
 
-function trendFor(name) {                // the trend map, computed once per species; null while it loads
-  var T = trends[name]; if (T) return T.puntos ? T : null;
-  trends[name] = {};
-  slopes(name, 0, "Computing the trend").then(function (T) {
+function trendFor(name) {                // the trend map, computed once per species and region; null while it loads
+  var key = name + "|" + state.view, T = trends[key]; if (T) return T.puntos ? T : null;
+  trends[key] = {};
+  slopes(name, 0, "Computing the trend", state.view).then(function (T) {
     T.scale = Math.max(0.01, quantile(T.puntos.map(function (p) { return Math.abs(p[2]); }), 0.98));
-    trends[name] = T; refresh();
-  }).catch(function (e) { delete trends[name]; status("Trend not available: " + e.message); });
+    trends[key] = T; refresh();
+  }).catch(function (e) { delete trends[key]; status("Trend not available: " + e.message); });
   return null;
 }
 
 /* Bivariate map (Analysis). Two things per cell, three classes each:
-   - environment change: how far the warmest month, the coldest month, the number of hot months and chlorophyll
+   - environment change: how far the summer maximum and winter minimum sea temperature, the marine heatwave months and chlorophyll
      have moved over the period, each measured in its own normal year-to-year swing (total linear change divided
      by the standard deviation around the line), then the mean of the four sizes;
    - habitat change: slope of the species' suitability over the same years.
    The classes are thirds of the cells of the map, so the cuts depend on the species. */
 var ENV_SET = "mediterraneo-2003";       // Trends set on the same 1° cells as the species maps, with the four variables
-var ENV_VARS = [["sst_max", "warmest month"], ["sst_min", "coldest month"], ["hot_months", "hot months"], ["chl", "chlorophyll"]];
+var ENV_VARS = [["sst_max", "summer maximum"], ["sst_min", "winter minimum"], ["mhw", "heatwave months"], ["chl", "chlorophyll"]];
 var BIV = [["#f2c4bd", "#dd7c70", "#b3261a"], ["#e8e8e8", "#b5b5b5", "#7a7a7a"], ["#c3d5ee", "#7aa5dc", "#1c5cab"]];   // [losing, stable, gaining][low, medium, high]
 var envChange = null, bivars = {};
 
@@ -299,7 +306,7 @@ function bivarFor(name) {                // the bivariate map, computed once per
   var B = bivars[name]; if (B) return B.puntos ? B : null;
   bivars[name] = {};
   envFor().then(function (env) {
-    return slopes(name, env.years[0], "Computing the habitat change").then(function (T) {
+    return slopes(name, env.years[0], "Computing the habitat change", "med").then(function (T) {
       var pts = [];
       T.puntos.forEach(function (p) { var c = env.cells[p[0] + "," + p[1]]; if (c) pts.push([p[0], p[1], p[2], c]); });
       var i1 = quantile(pts.map(function (p) { return p[3].index; }), 1 / 3), i2 = quantile(pts.map(function (p) { return p[3].index; }), 2 / 3);
@@ -412,14 +419,14 @@ function draw() {
 
 function refresh() {                     // legend and bottom bar follow the mode, then the map is drawn
   var biv = state.screen === "analysis", trend = !biv && state.mode === "trend", flat = biv || trend;
-  var T = trends[state.species], B = bivars[state.species], land = '<span><span class="sw land"></span>land</span>';
+  var T = trends[state.species + "|" + state.view], B = bivars[state.species], land = '<span><span class="sw land"></span>land</span>';
   var rows = ["gaining", "stable", "losing"].map(function (t, r) {
     return "<tr><th>" + t + "</th>" + BIV[2 - r].map(function (c) { return '<td style="background:' + c + '"></td>'; }).join("") + "</tr>";
   }).join("");
   $("sp-legend").innerHTML = biv
     ? '<table class="sp-biv"><caption>Habitat suitability ↓ &nbsp;·&nbsp; Environment change →</caption>' + rows +
       "<tr><th></th><td>low</td><td>medium</td><td>high</td></tr></table>" +
-      '<span class="sp-biv-note">Environment change: how far the warmest month, the coldest month, the number of hot months and chlorophyll have moved' +
+      '<span class="sp-biv-note">Environment change: how far summer maximum and winter minimum sea temperature, marine heatwave months and chlorophyll have moved' +
       (B && B.puntos ? " in " + B.period[0] + "–" + B.period[1] : "") + ", counted in their normal year-to-year swings (mean of the four)." +
       (B && B.puntos ? " Cuts: " + B.cuts[0].toFixed(1) + " and " + B.cuts[1].toFixed(1) + " swings; habitat is stable within ±" + B.cuts[2].toFixed(3) + " per decade. Classes are thirds of this map." : "") +
       "</span>" + land
@@ -473,18 +480,69 @@ canvas.addEventListener("mousemove", function (ev) {
 });
 
 /* ---------------- search, year, start ---------------- */
-var timer;
-$("sp-find").addEventListener("input", function (ev) {
-  clearTimeout(timer); var q = ev.target.value.trim(); if (q.length < 3) return;
+// Autocomplete: as you type, the backend asks OBIS for species names (most recorded first).
+var find = $("sp-find"), suggest = $("sp-suggest"), timer, request = null, results = [], active = -1;
+
+function closeSuggest() {
+  suggest.hidden = true; find.setAttribute("aria-expanded", "false"); find.removeAttribute("aria-activedescendant"); active = -1;
+}
+function esc(t) { return String(t).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
+function renderSuggest(q, message) {
+  if (message) { suggest.innerHTML = '<li class="sp-note">' + esc(message) + "</li>"; }
+  else {
+    var n = q.length;
+    suggest.innerHTML = results.map(function (r, i) {
+      var name = r.nombre.toLowerCase().indexOf(q.toLowerCase()) === 0
+        ? "<b>" + esc(r.nombre.slice(0, n)) + "</b>" + esc(r.nombre.slice(n)) : esc(r.nombre);
+      var info = [r.familia, r.clase].filter(Boolean).join(" · ");
+      return '<li role="option" id="sp-opt-' + i + '" aria-selected="' + (i === active) + '" data-i="' + i + '">' +
+        '<i>' + name + "</i><small>" + esc(info) + (info ? " · " : "") + r.registros.toLocaleString() + " records</small></li>";
+    }).join("");
+  }
+  suggest.hidden = false; find.setAttribute("aria-expanded", "true");
+  if (active >= 0) find.setAttribute("aria-activedescendant", "sp-opt-" + active); else find.removeAttribute("aria-activedescendant");
+}
+function choose(i) {
+  var r = results[i]; if (!r) return;
+  find.value = r.nombre; closeSuggest(); show(r.nombre);
+}
+
+find.addEventListener("input", function () {
+  clearTimeout(timer);
+  var q = find.value.trim();
+  if (request) request.abort();
+  if (q.length < 3) { results = []; closeSuggest(); return; }
   timer = setTimeout(function () {
-    api("/especies/buscar?q=" + encodeURIComponent(q)).then(function (res) {
-      $("sp-suggest").innerHTML = res.map(function (r) { return '<option value="' + r.nombre + '">' + (r.familia || r.clase || "") + "</option>"; }).join("");
-    }).catch(function () { /* suggestions are optional */ });
-  }, 300);
+    request = new AbortController();
+    renderSuggest(q, "Searching OBIS…");
+    fetch(API + "/especies/buscar?q=" + encodeURIComponent(q), { signal: request.signal })
+      .then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+      .then(function (res) {
+        if (find.value.trim() !== q) return;          // the user kept typing
+        results = res; active = res.length ? 0 : -1;
+        renderSuggest(q, res.length ? null : "No species with OBIS records match “" + q + "”.");
+      })
+      .catch(function (e) { if (e.name !== "AbortError") renderSuggest(q, "Search not available right now."); });
+  }, 250);
 });
-$("sp-find").addEventListener("change", function (ev) {
-  var q = ev.target.value.trim(); if (q.split(/\s+/).length >= 2) show(q);
+find.addEventListener("keydown", function (ev) {
+  var open = !suggest.hidden && results.length;
+  if (ev.key === "ArrowDown" && open) { active = (active + 1) % results.length; renderSuggest(find.value.trim()); ev.preventDefault(); }
+  else if (ev.key === "ArrowUp" && open) { active = (active - 1 + results.length) % results.length; renderSuggest(find.value.trim()); ev.preventDefault(); }
+  else if (ev.key === "Enter") {
+    ev.preventDefault();
+    if (open && active >= 0) choose(active);
+    else if (find.value.trim().split(/\s+/).length >= 2) { closeSuggest(); show(find.value.trim()); }
+  }
+  else if (ev.key === "Escape") closeSuggest();
 });
+// mousedown, not click: it runs before the input loses focus and the list closes.
+suggest.addEventListener("mousedown", function (ev) {
+  var li = ev.target.closest("li[data-i]"); if (!li) return;
+  ev.preventDefault(); choose(Number(li.dataset.i));
+});
+find.addEventListener("blur", function () { setTimeout(closeSuggest, 100); });
+find.addEventListener("focus", function () { if (results.length && find.value.trim().length >= 3) renderSuggest(find.value.trim()); });
 $("sp-year").addEventListener("change", function (ev) { setYear(Number(ev.target.value)); });
 $("sp-prev").addEventListener("click", function () { setYear(state.year - 1); });
 $("sp-next").addEventListener("click", function () { setYear(state.year + 1); });
@@ -505,7 +563,7 @@ function start() {
 // The Trends screen (app.js) reads one set at a time; changing it reloads the page with ?datos=<set>.
 (function dataSetPicker() {
   var place = $("region-name"); if (!place) return;
-  var current = new URLSearchParams(location.search).get("datos") || "mediterraneo-1980";
+  var current = new URLSearchParams(location.search).get("datos") || "mediterraneo-1982";
   var sel = el("select"); sel.id = "data-set"; sel.setAttribute("aria-label", "Region and period");
   sel.className = "sp-select";
   place.parentNode.insertBefore(sel, place.nextSibling);

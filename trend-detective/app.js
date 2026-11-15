@@ -6,7 +6,7 @@
 
 // Real data from the backend (/api/trends/<set>/, made by backend/exportar_trends.py); "?datos=<set>" picks
 // the region and period. "?datos=ficheros" reads the static files in data/ (pipeline/fetch_real_data.py).
-var DATA_SET = new URLSearchParams(location.search).get("datos") || "mediterraneo-1980";
+var DATA_SET = new URLSearchParams(location.search).get("datos") || "mediterraneo-1982";   // first set with sea temperature
 var DATA_DIR = DATA_SET === "ficheros" || DATA_SET === "sintetico" ? "data/" : "/api/trends/" + encodeURIComponent(DATA_SET) + "/";
 var VISIBLE = 4;                 // layers in focus in a stack
 var ALPHA = 0.05;                // significance level

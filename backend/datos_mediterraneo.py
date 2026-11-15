@@ -60,6 +60,15 @@ VARIABLES = {
              "convertir": lambda k: k - 273.15},  # K -> °C
         ],
     },
+    # Temperatura del mar de NOAA OISST (rejilla FINA) y sus extremos anuales (especies.py).
+    # Sólo los recoge el recolector: no tienen consulta en vivo (fuentes vacías).
+    "sst": {"nombre": "Temperatura de la superficie del mar - NOAA OISST v2.1", "unidades": "°C", "fuentes": []},
+    "sst_winter_min": {"nombre": "Temperatura del mar mínima del año (el mes más frío) - OISST",
+                       "unidades": "°C", "fuentes": []},
+    "sst_summer_max": {"nombre": "Temperatura del mar máxima del año (el mes más cálido) - OISST",
+                       "unidades": "°C", "fuentes": []},
+    "mhw_months": {"nombre": "Meses de ola de calor marina en el año (por encima del percentil 90 de 1982-2011)",
+                   "unidades": "meses", "fuentes": []},
     "salinidad": {
         "nombre": "Salinidad superficial del mar - SMAP",
         "unidades": "PSU",
