@@ -75,7 +75,9 @@ The maps slide away and the graph panel takes the space. For the current selecti
 
 - Time stack: every layer uses the **same** colour range, so years can be compared. The reference
   is the average of the whole sea over all years (default), so every point is coloured against the
-  same number. A switch under the view changes it to each place's own average over all years.
+  same number. The selector can instead use each place's own average, or an absolute scale based
+  on the 2nd–98th percentiles across all sea cells and years for that variable; values outside this
+  range use the endpoint colours.
 - Variable stack and trend map: one fixed range per variable, because the units differ.
 
 ### Where the statistics are computed
