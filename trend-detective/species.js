@@ -8,7 +8,8 @@
 
 var API = "/api";      // same origin: nginx forwards /api/ to the backend
 var VARIABLE_NAMES = {
-  temperatura: "Surface temperature", salinidad: "Salinity", fitoplancton: "Chlorophyll (phytoplankton)",
+  sst_winter_min: "Winter minimum sea temperature", sst_summer_max: "Summer maximum sea temperature",
+  mhw_months: "Marine heatwave months", temperatura: "Surface temperature", salinidad: "Salinity", fitoplancton: "Chlorophyll (phytoplankton)",
   fluorescencia: "Chlorophyll fluorescence", dif_temp_mar_aire: "Sea–air temperature difference",
   evaporacion: "Evaporation", viento_velocidad: "Wind speed"
 };
@@ -45,8 +46,10 @@ side.innerHTML =
   '<section><h2>Region</h2><p class="fact">World ocean</p><p class="fact dim" id="sp-period">&nbsp;</p></section>' +
   '<section><h2>Species</h2><p class="fact dim">Stored species. Cephalopods are always ready.</p><ul class="varlist" id="sp-list"></ul></section>' +
   '<section class="sp-search"><h2>Find another species</h2>' +
-  '<input id="sp-find" list="sp-suggest" placeholder="Scientific name, e.g. Thunnus thynnus" autocomplete="off" aria-label="Scientific name">' +
-  '<datalist id="sp-suggest"></datalist><p class="fact dim">Computed on first request, then stored.</p></section>' +
+  '<div class="sp-combo"><input id="sp-find" placeholder="Scientific name, e.g. Thunnus thynnus" autocomplete="off" spellcheck="false" ' +
+  'role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="sp-suggest" aria-label="Scientific name">' +
+  '<ul id="sp-suggest" role="listbox" hidden></ul></div>' +
+  '<p class="fact dim">Names and record counts from OBIS. Computed on first request, then stored.</p></section>' +
   '<section class="sp-month"><h2>Year</h2><p class="fact" id="sp-year-name">&nbsp;</p>' +
   '<input type="range" id="sp-year" min="1980" max="2025" step="1" aria-label="Year"></section>' +
   '<section><h2>What is this?</h2><p class="fact dim">Each sighting (OBIS, since 1980) is matched to the sea conditions of its place and year ' +
@@ -159,7 +162,7 @@ function panel() {
 
   $("sp-niche").innerHTML = Object.keys(d.nicho).map(function (v) {
     var n = d.nicho[v], mark = r.variables_indice.indexOf(v) >= 0 ? " *" : "";
-    var units = n.unidades.replace("día", "day");   // backend units are written in Spanish
+    var units = n.unidades.replace("día", "day").replace("meses", "months");   // backend units are in Spanish
     return "<tr><td>" + varName(v) + mark + '</td><td class="num">' + fmt(n.p5) + " – " + fmt(n.p95) + " " + units +
            '</td><td class="num">' + fmt(n.p50) + "</td></tr>";
   }).join("");
@@ -244,18 +247,69 @@ canvas.addEventListener("mousemove", function (ev) {
 });
 
 /* ---------------- search, year, start ---------------- */
-var timer;
-$("sp-find").addEventListener("input", function (ev) {
-  clearTimeout(timer); var q = ev.target.value.trim(); if (q.length < 3) return;
+// Autocomplete: as you type, the backend asks OBIS for species names (most recorded first).
+var find = $("sp-find"), suggest = $("sp-suggest"), timer, request = null, results = [], active = -1;
+
+function closeSuggest() {
+  suggest.hidden = true; find.setAttribute("aria-expanded", "false"); find.removeAttribute("aria-activedescendant"); active = -1;
+}
+function esc(t) { return String(t).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
+function renderSuggest(q, message) {
+  if (message) { suggest.innerHTML = '<li class="sp-note">' + esc(message) + "</li>"; }
+  else {
+    var n = q.length;
+    suggest.innerHTML = results.map(function (r, i) {
+      var name = r.nombre.toLowerCase().indexOf(q.toLowerCase()) === 0
+        ? "<b>" + esc(r.nombre.slice(0, n)) + "</b>" + esc(r.nombre.slice(n)) : esc(r.nombre);
+      var info = [r.familia, r.clase].filter(Boolean).join(" · ");
+      return '<li role="option" id="sp-opt-' + i + '" aria-selected="' + (i === active) + '" data-i="' + i + '">' +
+        '<i>' + name + "</i><small>" + esc(info) + (info ? " · " : "") + r.registros.toLocaleString() + " records</small></li>";
+    }).join("");
+  }
+  suggest.hidden = false; find.setAttribute("aria-expanded", "true");
+  if (active >= 0) find.setAttribute("aria-activedescendant", "sp-opt-" + active); else find.removeAttribute("aria-activedescendant");
+}
+function choose(i) {
+  var r = results[i]; if (!r) return;
+  find.value = r.nombre; closeSuggest(); show(r.nombre);
+}
+
+find.addEventListener("input", function () {
+  clearTimeout(timer);
+  var q = find.value.trim();
+  if (request) request.abort();
+  if (q.length < 3) { results = []; closeSuggest(); return; }
   timer = setTimeout(function () {
-    api("/especies/buscar?q=" + encodeURIComponent(q)).then(function (res) {
-      $("sp-suggest").innerHTML = res.map(function (r) { return '<option value="' + r.nombre + '">' + (r.familia || r.clase || "") + "</option>"; }).join("");
-    }).catch(function () { /* suggestions are optional */ });
-  }, 300);
+    request = new AbortController();
+    renderSuggest(q, "Searching OBIS…");
+    fetch(API + "/especies/buscar?q=" + encodeURIComponent(q), { signal: request.signal })
+      .then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+      .then(function (res) {
+        if (find.value.trim() !== q) return;          // the user kept typing
+        results = res; active = res.length ? 0 : -1;
+        renderSuggest(q, res.length ? null : "No species with OBIS records match “" + q + "”.");
+      })
+      .catch(function (e) { if (e.name !== "AbortError") renderSuggest(q, "Search not available right now."); });
+  }, 250);
 });
-$("sp-find").addEventListener("change", function (ev) {
-  var q = ev.target.value.trim(); if (q.split(/\s+/).length >= 2) show(q);
+find.addEventListener("keydown", function (ev) {
+  var open = !suggest.hidden && results.length;
+  if (ev.key === "ArrowDown" && open) { active = (active + 1) % results.length; renderSuggest(find.value.trim()); ev.preventDefault(); }
+  else if (ev.key === "ArrowUp" && open) { active = (active - 1 + results.length) % results.length; renderSuggest(find.value.trim()); ev.preventDefault(); }
+  else if (ev.key === "Enter") {
+    ev.preventDefault();
+    if (open && active >= 0) choose(active);
+    else if (find.value.trim().split(/\s+/).length >= 2) { closeSuggest(); show(find.value.trim()); }
+  }
+  else if (ev.key === "Escape") closeSuggest();
 });
+// mousedown, not click: it runs before the input loses focus and the list closes.
+suggest.addEventListener("mousedown", function (ev) {
+  var li = ev.target.closest("li[data-i]"); if (!li) return;
+  ev.preventDefault(); choose(Number(li.dataset.i));
+});
+find.addEventListener("blur", function () { setTimeout(closeSuggest, 100); });
+find.addEventListener("focus", function () { if (results.length && find.value.trim().length >= 3) renderSuggest(find.value.trim()); });
 $("sp-year").addEventListener("input", function (ev) { setYear(Number(ev.target.value)); });
 
 function start() {
@@ -270,7 +324,7 @@ function start() {
 // The Trends screen (app.js) reads one set at a time; changing it reloads the page with ?datos=<set>.
 (function dataSetPicker() {
   var place = $("region-name"); if (!place) return;
-  var current = new URLSearchParams(location.search).get("datos") || "mediterraneo-1980";
+  var current = new URLSearchParams(location.search).get("datos") || "mediterraneo-1982";
   var sel = el("select"); sel.id = "data-set"; sel.setAttribute("aria-label", "Region and period");
   sel.className = "sp-select";
   place.parentNode.insertBefore(sel, place.nextSibling);

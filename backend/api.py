@@ -42,6 +42,7 @@ import almacen
 import especies
 import exportar_trends
 from datos_mediterraneo import VARIABLES, media_serie
+import recolector
 from recolector import FUENTES, VARIABLES_RECOLECTADAS
 
 app = FastAPI(title="Estado del Mediterráneo", version="1.0")
@@ -55,11 +56,14 @@ class Zona:
     """Recorte opcional de los mapas (por defecto, todo el planeta)."""
     def __init__(self, lat_min: float = Query(-90, ge=-90, le=90), lat_max: float = Query(90, ge=-90, le=90),
                  lon_min: float = Query(-180, ge=-180, le=180), lon_max: float = Query(180, ge=-180, le=180)):
-        self.filas = (almacen.LATS >= lat_min) & (almacen.LATS <= lat_max)
-        self.columnas = (almacen.LONS >= lon_min) & (almacen.LONS <= lon_max)
+        self.caja = (lat_min, lat_max, lon_min, lon_max)
 
-    def celdas(self, mascara: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-        return np.nonzero(mascara & self.filas[:, None] & self.columnas[None, :])
+    def celdas(self, mascara: np.ndarray, lats: np.ndarray, lons: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """Celdas (filas, columnas) de `mascara` dentro de la zona, para una rejilla con esos centros."""
+        lat_min, lat_max, lon_min, lon_max = self.caja
+        filas = (lats >= lat_min) & (lats <= lat_max)
+        columnas = (lons >= lon_min) & (lons <= lon_max)
+        return np.nonzero(mascara & filas[:, None] & columnas[None, :])
 
 
 def _mes(texto: str) -> date:
@@ -69,18 +73,20 @@ def _mes(texto: str) -> date:
         raise HTTPException(400, f"Mes no válido: {texto!r} (formato AAAA-MM)")
 
 
-def _ambiente():
-    ds = almacen.abrir_ambiente()
+def _ambiente(variable: str):
+    """(rejilla, Dataset) del almacén mensual donde está la variable (1° o 0,5°)."""
+    r = almacen.rejilla_de(variable) or almacen.BASE
+    ds = almacen.abrir_ambiente(r)
     if ds is None:
         raise HTTPException(503, "Todavía no hay datos: ejecuta el recolector")
-    return ds
+    return r, ds
 
 
 @app.get("/api/variables")
 def variables():
     return {v: {"nombre": VARIABLES[v]["nombre"], "unidades": VARIABLES[v]["unidades"],
                 "fuente": FUENTES[v]["fuente"], "desde": FUENTES[v]["desde"], "paso": "mensual",
-                "resolucion_grados": almacen.PASO}
+                "resolucion_grados": recolector.rejilla(v).paso}
             for v in VARIABLES_RECOLECTADAS}
 
 
@@ -96,20 +102,20 @@ def datos(lat: float = Query(..., ge=-90, le=90), lon: float = Query(..., ge=-18
     if desconocidas:
         raise HTTPException(400, f"Variables desconocidas: {sorted(desconocidas)}")
 
-    ds = _ambiente()
-    mar = ds["mar"].values
     resultado = {}
     for v in variables:
         entrada = {"nombre": VARIABLES[v]["nombre"], "unidades": VARIABLES[v]["unidades"],
                    "fuente": FUENTES[v]["fuente"], "punto": None, "serie": [],
                    "media": None, "ultimo": None, "error": None}
-        celda = almacen.celda_mas_cercana(mar, lat, lon)
+        r, ds = _ambiente(v)
+        celda = almacen.celda_mas_cercana(ds["mar"].values, lat, lon, r=r)
         if celda is None:
             entrada["error"] = "No hay celdas de mar cerca de esa coordenada"
         elif v not in ds:
             entrada["error"] = "Variable todavía sin datos"
         else:
-            la, lo = float(almacen.LATS[celda[0]]), float(almacen.LONS[celda[1]])
+            la, lo = float(r.lats[celda[0]]), float(r.lons[celda[1]])
+            entrada["resolucion_grados"] = r.paso
             entrada["punto"] = {"lat": la, "lon": lo, "distancia_km": round(float(almacen.distancia_km(lat, lon, la, lo)), 1)}
             serie = ds[v].isel(lat=celda[0], lon=celda[1]).sel(time=slice(desde_m.isoformat(), hasta_m.isoformat())).load()
             serie = serie[serie.notnull()]
@@ -129,26 +135,31 @@ def mapa(variable: str, mes: str | None = Query(None, description="AAAA-MM; por 
     """Media mensual de cada celda en `mes`."""
     if variable not in VARIABLES_RECOLECTADAS:
         raise HTTPException(400, f"Variable desconocida: {variable}")
-    ds = _ambiente()
+    r, ds = _ambiente(variable)
     if variable not in ds or not ds[variable].attrs.get("hasta"):
         return {"variable": variable, "mes": None, "puntos": []}
     m = _mes(mes or ds[variable].attrs["hasta"])
     valores = ds[variable].sel(time=m.isoformat()).values
-    ii, jj = zona.celdas(~np.isnan(valores))
+    ii, jj = zona.celdas(~np.isnan(valores), r.lats, r.lons)
     return {"variable": variable, "unidades": VARIABLES[variable]["unidades"], "mes": m.isoformat()[:7],
-            "paso_grados": almacen.PASO,
-            "puntos": [[float(almacen.LATS[i]), float(almacen.LONS[j]), float(f"{valores[i, j]:.5g}")]
+            "paso_grados": r.paso,
+            "puntos": [[float(r.lats[i]), float(r.lons[j]), float(f"{valores[i, j]:.5g}")]
                        for i, j in zip(ii, jj)]}
 
 
 @app.get("/api/estado")
 def estado():
-    ds = almacen.abrir_ambiente()
-    if ds is None:
-        return {"celdas_mar": 0, "variables": {}}
-    return {"celdas_mar": int(ds["mar"].values.sum()),
-            "variables": {v: {"desde": ds[v].attrs.get("desde"), "hasta": ds[v].attrs.get("hasta")}
-                          for v in VARIABLES_RECOLECTADAS if v in ds}}
+    salida = {"rejillas": {}, "variables": {}}
+    for r in almacen.REJILLAS:
+        g = almacen.abrir_grupo(r)
+        if g is None:
+            continue
+        salida["rejillas"][r.nombre] = {"paso_grados": r.paso, "celdas_mar": int(g["mar"][:].sum())}
+        for v in VARIABLES_RECOLECTADAS:
+            if v in g:
+                salida["variables"][v] = {"desde": g[v].attrs.get("desde"), "hasta": g[v].attrs.get("hasta"),
+                                          "resolucion_grados": r.paso}
+    return salida
 
 
 # --------------------------------------------------------------------------- especies
@@ -213,13 +224,15 @@ def especie_mapa(nombre: str, anio: int | None = Query(None, description="por de
     total = ds["registros"].sum("anio_registro").values
     del_anio = (ds["registros"].sel(anio_registro=anio).values if anio in ds.anio_registro.values
                 else np.zeros_like(total))
-    ii, jj = zona.celdas(~np.isnan(idoneidad))
-    ri, rj = zona.celdas(total > 0)
-    return {"especie": nombre, "anio": anio, "umbral_idoneo": especies.UMBRAL_IDONEO, "paso_grados": almacen.PASO,
+    lats, lons = ds.lat.values, ds.lon.values                      # rejilla de la especie (0,5°)
+    ii, jj = zona.celdas(~np.isnan(idoneidad), lats, lons)
+    ri, rj = zona.celdas(total > 0, lats, lons)
+    return {"especie": nombre, "anio": anio, "umbral_idoneo": especies.UMBRAL_IDONEO,
+            "paso_grados": float(round(lats[1] - lats[0], 4)),
             "limitantes": list(ds["limitante"].attrs["codigos"]),
-            "puntos": [[float(almacen.LATS[i]), float(almacen.LONS[j]), round(float(idoneidad[i, j]), 3),
+            "puntos": [[float(lats[i]), float(lons[j]), round(float(idoneidad[i, j]), 3),
                         int(limitante[i, j])] for i, j in zip(ii, jj)],
-            "avistamientos": [[float(almacen.LATS[i]), float(almacen.LONS[j]), int(total[i, j]), int(del_anio[i, j])]
+            "avistamientos": [[float(lats[i]), float(lons[j]), int(total[i, j]), int(del_anio[i, j])]
                               for i, j in zip(ri, rj)]}
 
 
