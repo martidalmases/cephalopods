@@ -76,7 +76,6 @@ function load() {
     $("loading").hidden = true; ready = true;
     buildSidebar(); render();
   }).catch(function (e) {
-    $("loading").textContent = "Could not load the data files. Serve this folder over HTTP (python3 -m http.server) and reload.";
     console.error(e);
     // The default backend set may not exist (e.g. while a source has gaps): open the world set with sea
     // temperature that has most years, else the first one, from the backend's list.
@@ -355,9 +354,13 @@ function hatchPattern(g) {
   h.strokeStyle = C.ink; h.globalAlpha = 0.6; h.lineWidth = 1; h.beginPath(); h.moveTo(-1, 7); h.lineTo(7, -1); h.stroke();
   return g.createPattern(cv, "repeat");
 }
+function flatFrame(M, w, h) {
+  var sc = M[0], x0 = M[4], y0 = M[5], fx = Math.max(40, x0), fy = Math.max(40, y0);
+  return { left: fx, top: fy, right: Math.min(w - 40, x0 + nx * sc), bottom: Math.min(h - 40, y0 + ny * sc) };
+}
 function drawFlat(g, M, layer, w, h) {       // front-facing map, clipped to a frame so it can be zoomed
-  var sc = M[0], x0 = M[4], y0 = M[5], k, r = meta.region;
-  var fx = Math.max(40, x0), fy = Math.max(40, y0), fw = Math.min(w - 40, x0 + nx * sc) - fx, fh = Math.min(h - 40, y0 + ny * sc) - fy;
+  var sc = M[0], x0 = M[4], y0 = M[5], k, r = meta.region, frame = flatFrame(M, w, h);
+  var fx = frame.left, fy = frame.top, fw = frame.right - fx, fh = frame.bottom - fy;
   g.save(); g.beginPath(); g.rect(fx, fy, fw, fh); g.clip();
   blit(g, M, layerImage(layer, false), 1);
   if (layer.varId !== undefined) {
@@ -529,7 +532,13 @@ function renderAnalysis() {
   if (state.sel.type !== "region") { var c = el("button", "ghost small", "Clear selection"); c.type = "button"; c.addEventListener("click", function () { setSel({ type: "region" }); }); head.appendChild(c); }
   root.appendChild(head);
 
-  var left = el("section"); left.appendChild(el("h2", "", "Time series of the ticked variables"));
+  var left = el("section"), seriesHead = el("div", "series-head");
+  seriesHead.appendChild(el("h2", "", "Time series of the ticked variables"));
+  var bandNote = el("p", "note forecast-band-note"), swatch = el("span", "forecast-band-swatch");
+  swatch.setAttribute("aria-hidden", "true"); bandNote.appendChild(swatch);
+  bandNote.appendChild(document.createTextNode("90% prediction interval (forecast uncertainty)"));
+  seriesHead.appendChild(bandNote);
+  left.appendChild(seriesHead);
   root.appendChild(left); shownSorted().forEach(function (id) { miniGraph(left, id, true); });
 
   var right = el("section"); root.appendChild(right);

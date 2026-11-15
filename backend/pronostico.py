@@ -3,12 +3,17 @@
 from __future__ import annotations
 
 import math
+import threading
 
 import numpy as np
 
 HORIZON = 5
 MIN_OBSERVATIONS = 8
 MAX_INTERPOLATED_GAP = 2
+# Several requests arrive at once (one per ticked series) and Darts is not thread-safe: building a
+# model from parallel threads fails ("'ExponentialSmoothing' object has no attribute '_model_call'").
+# Each fit takes a few hundredths of a second, so they simply run one after another.
+_DARTS_LOCK = threading.Lock()
 
 
 def pronosticar(anios: list[int], valores: list[float | None]) -> dict:
@@ -40,15 +45,16 @@ def pronosticar(anios: list[int], valores: list[float | None]) -> dict:
             serie[inicio + j] = izquierda + (derecha - izquierda) * (j + 1) / (hueco + 1)
             rellenados.append(anios[inicio + j])
     # Annual means have no within-year seasonality and only 23–46 observations.
-    from darts import TimeSeries
-    from darts.models import ExponentialSmoothing
-    from darts.utils.utils import ModelMode, SeasonalityMode
-    ts = TimeSeries.from_values(np.asarray(serie, dtype=float))
-    model = ExponentialSmoothing(trend=ModelMode.ADDITIVE, damped=True,
-                                 seasonal=SeasonalityMode.NONE, random_state=0)
-    model.fit(ts)
-    draws = model.predict(HORIZON, num_samples=500)
-    quantiles = draws.quantile([0.05, 0.5, 0.95]).values()
+    with _DARTS_LOCK:
+        from darts import TimeSeries
+        from darts.models import ExponentialSmoothing
+        from darts.utils.utils import ModelMode, SeasonalityMode
+        ts = TimeSeries.from_values(np.asarray(serie, dtype=float))
+        model = ExponentialSmoothing(trend=ModelMode.ADDITIVE, damped=True,
+                                     seasonal=SeasonalityMode.NONE, random_state=0)
+        model.fit(ts)
+        draws = model.predict(HORIZON, num_samples=500)
+        quantiles = draws.quantile([0.05, 0.5, 0.95]).values()
     forecast_years = list(range(anios[-1] + 1, anios[-1] + HORIZON + 1))
     return {
         "years": forecast_years,
