@@ -300,9 +300,13 @@ function hatchPattern(g) {
   h.strokeStyle = C.ink; h.globalAlpha = 0.6; h.lineWidth = 1; h.beginPath(); h.moveTo(-1, 7); h.lineTo(7, -1); h.stroke();
   return g.createPattern(cv, "repeat");
 }
+function flatFrame(M, w, h) {
+  var sc = M[0], x0 = M[4], y0 = M[5], fx = Math.max(40, x0), fy = Math.max(40, y0);
+  return { left: fx, top: fy, right: Math.min(w - 40, x0 + nx * sc), bottom: Math.min(h - 40, y0 + ny * sc) };
+}
 function drawFlat(g, M, layer, w, h) {       // front-facing map, clipped to a frame so it can be zoomed
-  var sc = M[0], x0 = M[4], y0 = M[5], k, r = meta.region;
-  var fx = Math.max(40, x0), fy = Math.max(40, y0), fw = Math.min(w - 40, x0 + nx * sc) - fx, fh = Math.min(h - 40, y0 + ny * sc) - fy;
+  var sc = M[0], x0 = M[4], y0 = M[5], k, r = meta.region, frame = flatFrame(M, w, h);
+  var fx = frame.left, fy = frame.top, fw = frame.right - fx, fh = frame.bottom - fy;
   g.save(); g.beginPath(); g.rect(fx, fy, fw, fh); g.clip();
   blit(g, M, layerImage(layer, false), 1);
   if (layer.varId !== undefined) {
@@ -653,6 +657,11 @@ canvas.addEventListener("pointerup", function (e) {
     var i0 = Math.min(d.a[0], d.b[0]), i1 = Math.max(d.a[0], d.b[0]), j0 = Math.min(d.a[1], d.b[1]), j1 = Math.max(d.a[1], d.b[1]), cells = [];
     for (var j = j0; j <= j1; j++) for (var i = i0; i <= i1; i++) { var c = cellOf[j * nx + i]; if (c >= 0) cells.push(c); }
     if (cells.length) setSel({ type: "area", i0: i0, i1: i1, j0: j0, j1: j1, cells: cells }); else drawMain();
+    return;
+  }
+  if (state.focus && view.focusT >= 1 && geom && geom.flat) {
+    var p = pos(e), frame = flatFrame(geom.flat, canvas.clientWidth, canvas.clientHeight);
+    if (p[0] < frame.left || p[0] > frame.right || p[1] < frame.top || p[1] > frame.bottom) { closeFocus(); return; }
     return;
   }
   if (isFlat() || view.focusT > 0) return;
