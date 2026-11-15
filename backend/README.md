@@ -101,7 +101,7 @@ data appear. Chlorophyll, fluorescence and salinity are shown in the niche, mark
 index.
 
 **When each species is computed:**
-- **The main ones** (7 cephalopods in `ESPECIES_PRINCIPALES`) are recomputed at the end of each
+- **The main ones** (4 tropical species that entered through the Suez Canal, in `ESPECIES_PRINCIPALES`) are recomputed at the end of each
   harvester run.
 - **The others** are computed the first time the website asks for them at `/api/especies/{nombre}`
   and are then stored. It can take up to a minute, because their sightings worldwide are
@@ -350,7 +350,7 @@ de principio a fin: si entrara la clorofila, el índice cambiaría en 2003 solo 
 dato nuevo. Clorofila, fluorescencia y salinidad se ven en el nicho, marcadas como fuera del índice.
 
 **Cuándo se calcula cada especie:**
-- **Las principales** (7 cefalópodos de `ESPECIES_PRINCIPALES`) se recalculan al final de cada
+- **Las principales** (4 especies tropicales llegadas por el canal de Suez, en `ESPECIES_PRINCIPALES`) se recalculan al final de cada
   ejecución del recolector.
 - **Las demás** se calculan la primera vez que la web las pide a `/api/especies/{nombre}` y quedan
   guardadas. Puede tardar hasta un minuto, porque se descargan de OBIS sus avistamientos de todo

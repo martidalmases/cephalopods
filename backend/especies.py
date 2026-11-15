@@ -76,15 +76,13 @@ PERCENTILES = [5, 25, 50, 75, 95]
 FRANJA = 45                 # filas de latitud por franja al calcular medias anuales
 TROZOS = {"anio": 12, "anio_registro": 12, "lat": almacen.TROZO_ESPACIO, "lon": almacen.TROZO_ESPACIO}
 
-# Cefalópodos de interés pesquero y ecológico (también presentes en el Mediterráneo).
+# Especies tropicales que han entrado en el Mediterráneo por el canal de Suez (lessepsianas):
+# se calculan siempre; cualquier otra se calcula cuando se pide.
 ESPECIES_PRINCIPALES = {
-    "Octopus vulgaris": "Pulpo común",
-    "Sepia officinalis": "Sepia común",
-    "Loligo vulgaris": "Calamar común",
-    "Eledone moschata": "Pulpo almizclado",
-    "Eledone cirrhosa": "Pulpo blanco",
-    "Illex coindetii": "Pota voladora",
-    "Todarodes sagittatus": "Pota europea",
+    "Pterois miles": "Pez león",
+    "Lagocephalus sceleratus": "Pez globo plateado",
+    "Siganus luridus": "Pez conejo oscuro",
+    "Fistularia commersonii": "Pez corneta",
 }
 
 # Variables que describen el hábitat. La dirección del viento y los aerosoles quedan fuera.

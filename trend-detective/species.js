@@ -20,10 +20,8 @@
 var API = "/api";      // same origin: nginx forwards /api/ to the backend
 var ALPHA = 0.05;
 var COMMON_NAMES = {   // the backend stores Spanish common names; the site is in English
-  "Octopus vulgaris": "Common octopus", "Sepia officinalis": "Common cuttlefish",
-  "Loligo vulgaris": "European squid", "Eledone moschata": "Musky octopus",
-  "Eledone cirrhosa": "Horned octopus", "Illex coindetii": "Broadtail shortfin squid",
-  "Todarodes sagittatus": "European flying squid"
+  "Pterois miles": "Devil firefish (lionfish)", "Lagocephalus sceleratus": "Silver-cheeked toadfish",
+  "Siganus luridus": "Dusky spinefoot", "Fistularia commersonii": "Bluespotted cornetfish"
 };
 // Bivariate map "now × trend": [suitability now: low, medium, high][trend: falling, none, rising].
 var BI = [["#c9d6ea", null, "#f0cdc8"], ["#7fa3d6", "#b9b6ac", "#e08a80"], ["#1c5cab", "#6f6c62", "#c23b30"]];
@@ -81,7 +79,7 @@ var trendSide = document.querySelector(".side .side-body");
 var side = el("div", "side-body"); side.id = "sp-side"; side.hidden = true;
 side.innerHTML =
   '<section><h2>Region</h2><p class="fact">Mediterranean Sea</p><p class="fact dim" id="sp-period">&nbsp;</p></section>' +
-  '<section><h2>Species</h2><p class="fact dim">Stored species. Cephalopods are always ready.</p><ul class="varlist" id="sp-list"></ul></section>' +
+  '<section><h2>Species</h2><p class="fact dim">Stored species. Four tropical newcomers that entered through the Suez Canal are always ready.</p><ul class="varlist" id="sp-list"></ul></section>' +
   '<section class="sp-search"><h2>Find another species</h2>' +
   '<div class="sp-combo"><input id="sp-find" placeholder="Scientific name, e.g. Thalassoma pavo" autocomplete="off" spellcheck="false" ' +
   'role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="sp-suggest" aria-label="Scientific name">' +
@@ -630,7 +628,7 @@ document.querySelectorAll("#sp-layer button").forEach(function (b) { b.addEventL
 function start() {
   var wanted = new URLSearchParams(location.search).get("especie");
   loadList().then(function (list) {
-    var first = wanted ? { nombre: wanted } : list.filter(function (sp) { return sp.nombre === "Octopus vulgaris"; })[0] || list[0];
+    var first = wanted ? { nombre: wanted } : list.filter(function (sp) { return sp.nombre === "Pterois miles"; })[0] || list[0];
     if (first) show(first.nombre);
     else status("No species stored yet. Type a scientific name on the left.");
   }).catch(function (e) { status("The species service is not available right now (" + e.message + ")."); });
