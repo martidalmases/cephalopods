@@ -17,7 +17,8 @@
 (function () {
 "use strict";
 
-var API = "/api";      // same origin: nginx forwards /api/ to the backend
+var API_ROOT = (new URLSearchParams(location.search).get("api") || "").replace(/\/$/, "");
+var API = API_ROOT + "/api";      // hosted same-origin by default; local preview can pass ?api=http://localhost:8001
 var ALPHA = 0.05;
 var COMMON_NAMES = {   // the backend stores Spanish common names; the site is in English
   "Pterois miles": "Devil firefish (lionfish)", "Lagocephalus sceleratus": "Silver-cheeked toadfish",
@@ -48,7 +49,7 @@ function deg(v, pos, neg) { return Math.abs(v).toFixed(2) + "°" + (v >= 0 ? pos
 
 // screen: "viz" | "analysis"; mode: "time" (stack of years) | "species" (stack of species) | "trend" | "bi";
 // focus: one stack layer opened flat; layer: "temp" | "chl" (variables in the suitability).
-var state = { page: "trends", screen: "viz", mode: "time", focus: false, layer: "chl", species: null, year: null, data: null, list: [] };
+var state = { page: "trends", screen: "viz", mode: "time", analysisMode: "history", focus: false, layer: "chl", species: null, year: null, data: null, list: [] };
 
 /* ---------------- DOM: page switch, button groups, sidebar, main view, panel ---------------- */
 var options = document.querySelector(".options");
@@ -72,8 +73,10 @@ function press(g, v) { g.querySelectorAll("button").forEach(function (b) { b.set
 var spScreens = seg("sp-screens", "Screen", [["viz", "Visualisation"], ["analysis", "Analysis"]], setScreen);
 var spModes = seg("sp-modes", "Visualisation options", [["time", "Stack by time"], ["species", "Stack by species"],
   ["trend", "Trend map"]], setMode);
+var spAnalysisModes = seg("sp-analysis-modes", "Species analysis map", [["history", "Historical change"], ["projection", "5-year projection"]], setAnalysisMode);
 function setScreen(v) { state.screen = v; state.focus = false; setPage(state.page); }
 function setMode(v) { state.mode = v; state.focus = false; refresh(); }
+function setAnalysisMode(v) { state.analysisMode = v; refresh(); }
 
 var trendSide = document.querySelector(".side .side-body");
 var side = el("div", "side-body"); side.id = "sp-side"; side.hidden = true;
@@ -132,6 +135,7 @@ function setPage(p) {
   var analysis = document.querySelector('#screens [data-screen="analysis"]').getAttribute("aria-pressed") === "true";
   $("modes").hidden = sp || analysis; if ($("amodes")) $("amodes").hidden = sp || !analysis;
   spScreens.hidden = !sp; spModes.hidden = !sp || state.screen === "analysis";
+  spAnalysisModes.hidden = !sp || state.screen !== "analysis";
   row.hidden = !sp; side.hidden = !sp;
   if (history.replaceState) history.replaceState(null, "", sp ? "#species" : location.pathname + location.search);
   if (sp && !state.list.length) start(); else if (sp) refresh();
@@ -205,6 +209,12 @@ function prepare(d) {                          // lookups used by the maps
   var last = d.idoneidad.slice(-NOW_YEARS);
   d.now = new Float64Array(n);
   for (k = 0; k < n; k++) { var s = 0, c = 0; last.forEach(function (rowv) { if (rowv[k] !== null) { s += rowv[k]; c++; } }); d.now[k] = c ? s / c / 100 : NaN; }
+  d.projectionYear = d.anios[d.anios.length - 1] + 5;
+  d.projected = new Float32Array(n);
+  for (k = 0; k < n; k++) {
+    var slope = d.tendencia_celdas.slope_per_decade[k];
+    d.projected[k] = has(d.now[k]) ? 100 * Math.max(0, Math.min(1, d.now[k] + (has(slope) ? slope * 0.5 : 0))) : NaN;
+  }
   var slopes = d.tendencia_celdas.slope_per_decade.filter(has).map(Math.abs).sort(function (a, b) { return a - b; });
   d.slopeMax = Math.max(0.005, slopes[Math.floor(slopes.length * 0.98)] || 0.005);
   d.seen = {}; d.seenYear = {};                // cell -> {year: n}; year -> cells with sightings
@@ -239,21 +249,34 @@ function fit(cv) {
   var g = cv.getContext("2d"); g.setTransform(d, 0, 0, d, 0, 0); g.clearRect(0, 0, w, h); return { g: g, w: w, h: h };
 }
 function label(g, s, x, y, align, color) { g.font = "400 10px 'IBM Plex Mono',monospace"; g.fillStyle = color || css("--ink-2"); g.textAlign = align || "left"; g.textBaseline = "middle"; g.fillText(s, x, y); }
-function seriesChart(cv, xs, ys, slopeDecade, decimals) {      // points, line and the Sen line
+function seriesChart(cv, xs, ys, slopeDecade, decimals, project) {
   var f = fit(cv), g = f.g; if (f.w < 60) return;
-  var L = 52, R = 8, T = 6, B = 16, vals = ys.filter(has); if (!vals.length) return;
+  var L = 52, R = 8, T = 6, B = 16, vals = ys.filter(has), first = -1, last = -1, i;
+  for (i = 0; i < ys.length; i++) if (has(ys[i])) { if (first < 0) first = i; last = i; }
+  if (first < 0) return;
+  var x0 = xs[first], observedEnd = xs[last], lastValue = ys[last], b = has(slopeDecade) ? slopeDecade / 10 : 0;
+  var forecastEnd = project ? observedEnd + 5 : observedEnd, forecast = [];
+  if (project) for (i = 1; i <= 5; i++) { var fv = lastValue + b * i; forecast.push({ year: observedEnd + i, value: fv }); vals.push(fv); }
   var lo = Math.min.apply(null, vals), hi = Math.max.apply(null, vals), pad = (hi - lo) * 0.12 || 1; lo -= pad; hi += pad;
-  var x0 = xs[0], x1 = xs[xs.length - 1], X = function (x) { return L + (f.w - L - R) * (x - x0) / ((x1 - x0) || 1); }, Y = function (v) { return T + (f.h - T - B) * (hi - v) / (hi - lo); };
+  var X = function (x) { return L + (f.w - L - R) * (x - x0) / ((forecastEnd - x0) || 1); }, Y = function (v) { return T + (f.h - T - B) * (hi - v) / (hi - lo); };
   [lo + pad, hi - pad].forEach(function (v) { g.beginPath(); g.moveTo(L, Y(v)); g.lineTo(f.w - R, Y(v)); g.strokeStyle = css("--rule"); g.lineWidth = 0.8; g.stroke(); label(g, v.toLocaleString("en-GB", { maximumFractionDigits: decimals }), L - 6, Y(v), "right"); });
-  label(g, String(Math.round(x0)), L, f.h - 6, "left"); label(g, String(Math.round(x1)), f.w - R, f.h - 6, "right");
+  label(g, String(Math.round(x0)), L, f.h - 6, "left");
+  if (project) label(g, String(Math.round(observedEnd)), X(observedEnd), f.h - 6, "center");
+  label(g, String(Math.round(forecastEnd)), f.w - R, f.h - 6, "right");
   var ink = css("--ink"), prev = false;
-  g.beginPath(); ys.forEach(function (v, i) { if (!has(v)) { prev = false; return; } if (prev) g.lineTo(X(xs[i]), Y(v)); else g.moveTo(X(xs[i]), Y(v)); prev = true; });
+  g.beginPath(); ys.forEach(function (v, j) { if (!has(v)) { prev = false; return; } if (prev) g.lineTo(X(xs[j]), Y(v)); else g.moveTo(X(xs[j]), Y(v)); prev = true; });
   g.strokeStyle = ink; g.lineWidth = 1.5; g.lineJoin = "round"; g.stroke();
-  ys.forEach(function (v, i) { if (!has(v)) return; g.beginPath(); g.arc(X(xs[i]), Y(v), 1.8, 0, 7); g.fillStyle = ink; g.fill(); });
-  if (!has(slopeDecade)) return;
-  var b = slopeDecade / 10, mid = (x0 + x1) / 2, rest = []; ys.forEach(function (v, i) { if (has(v)) rest.push(v - b * (xs[i] - mid)); });
-  var c = median(rest);                         // Sen line: the slope, through the median of the points
-  g.beginPath(); g.moveTo(X(x0), Y(c + b * (x0 - mid))); g.lineTo(X(x1), Y(c + b * (x1 - mid))); g.strokeStyle = css("--probe"); g.lineWidth = 2; g.setLineDash([6, 4]); g.stroke(); g.setLineDash([]);
+  ys.forEach(function (v, j) { if (!has(v)) return; g.beginPath(); g.arc(X(xs[j]), Y(v), 1.8, 0, 7); g.fillStyle = ink; g.fill(); });
+  if (has(slopeDecade)) {
+    var mid = (xs[0] + xs[xs.length - 1]) / 2, rest = []; ys.forEach(function (v, j) { if (has(v)) rest.push(v - b * (xs[j] - mid)); });
+    var c = median(rest); g.beginPath(); g.moveTo(X(xs[0]), Y(c + b * (xs[0] - mid))); g.lineTo(X(observedEnd), Y(c + b * (observedEnd - mid)));
+    g.strokeStyle = css("--probe"); g.lineWidth = 2; g.setLineDash([6, 4]); g.stroke(); g.setLineDash([]);
+  }
+  if (project) {
+    g.beginPath(); g.moveTo(X(observedEnd), Y(lastValue)); forecast.forEach(function (p) { g.lineTo(X(p.year), Y(p.value)); });
+    g.strokeStyle = css("--accent"); g.lineWidth = 2.5; g.setLineDash([2, 3]); g.stroke(); g.setLineDash([]);
+    g.beginPath(); g.moveTo(X(observedEnd), T); g.lineTo(X(observedEnd), f.h - B); g.strokeStyle = css("--accent"); g.lineWidth = 1; g.setLineDash([2, 3]); g.stroke(); g.setLineDash([]);
+  }
 }
 function verdict(ind, decimals) {
   if (!has(ind.pendiente_decada)) return "Too few years with data for a trend.";
@@ -264,7 +287,9 @@ function indicator(parent, ind, title, decimals, extra) {
   var div = el("div", "mini"), cv = document.createElement("canvas");
   div.appendChild(el("h3", "", title)); div.appendChild(cv); div.appendChild(el("p", "", verdict(ind, decimals)));
   if (extra) div.appendChild(el("p", "sp-extra", extra));
-  parent.appendChild(div); seriesChart(cv, ind.anios, ind.serie, ind.pendiente_decada, decimals);
+  var projection = ind.tipo === "modelo" && ind.significativa && has(ind.pendiente_decada);
+  if (ind.tipo === "modelo") div.appendChild(el("p", "sp-extra", projection ? "Dotted line: 5-year continuation of the significant trend." : "No projection: the trend is not statistically significant."));
+  parent.appendChild(div); seriesChart(cv, ind.anios, ind.serie, ind.pendiente_decada, decimals, projection);
 }
 
 /* ---------------- panel ---------------- */
@@ -404,11 +429,11 @@ function bivFor(d) {                     // per cell classes of the combined cha
 
 /* ---------------- legend, bottom bar ---------------- */
 function flatKind() {                    // null: the stack; else what the flat map shows
-  return state.screen === "analysis" ? "biv" : state.mode === "trend" ? "trend" : state.mode === "bi" ? "bi" : state.focus ? "suit" : null;
+  return state.screen === "analysis" ? (state.analysisMode === "projection" ? "forecast" : "biv") : state.mode === "trend" ? "trend" : state.mode === "bi" ? "bi" : state.focus ? "suit" : null;
 }
 function refresh() {
   if (state.page !== "species") return;
-  press(spScreens, state.screen); press(spModes, state.mode); spModes.hidden = state.screen === "analysis";
+  press(spScreens, state.screen); press(spModes, state.mode); press(spAnalysisModes, state.analysisMode); spModes.hidden = state.screen === "analysis";
   var d = state.data, kind = flatKind();
   if (!d) { draw(); return; }
   var years = layerYears(d), sel = $("sp-year");
@@ -420,7 +445,11 @@ function refresh() {
   $("sp-layer-note").textContent = state.layer === "chl" ? "Temperature and chlorophyll together, " + years[0] + " to " + years[years.length - 1] + ". Trend maps always use the temperature index."
     : "Coldest month, hottest month and unusually hot months, " + d.anios[0] + " to " + d.anios[d.anios.length - 1] + ".";
   var L = $("sp-legend"), land = '<span><span class="sw land"></span>land</span>';
-  if (kind === "biv") {
+  if (kind === "forecast") {
+    L.innerHTML = '<span>Projected suitability in ' + d.projectionYear + ': 0 <span class="ramp sp"></span> 1 (suitable threshold ' + d.umbral_idoneo.toFixed(2) + ')</span>' +
+      '<span><span class="sw hatch"></span>uncertain trend (adjusted p ≥ ' + ALPHA + ' or unavailable)</span>' +
+      '<span class="sp-biv-note">Five-year continuation of each cell&#39;s historical suitability trend; not a causal forecast or a prediction of species presence.</span>' + land;
+  } else if (kind === "biv") {
     var B = d.biv && d.biv.hab ? d.biv : null, rows = ["gaining", "stable", "losing"].map(function (t, r) {
       return "<tr><th>" + t + "</th>" + BIV[2 - r].map(function (c) { return '<td style="background:' + c + '"></td>'; }).join("") + "</tr>";
     }).join("");
@@ -448,7 +477,7 @@ function refresh() {
 var canvas = $("sp-map"), geom = null, hits = [], tip = $("tip"), images = {};
 function cellColor(d, k, kind, values) {
   var midc = rgb(css("--mid"));
-  if (kind === "suit") { var v = values[k]; return v === null ? null : mix(midc, rgb(css("--neg")), Math.pow(v / 100, 0.9)); }
+  if (kind === "suit" || kind === "forecast") { var v = values && values[k]; return !has(v) ? null : mix(midc, rgb(css("--neg")), Math.pow(v / 100, 0.9)); }
   if (kind === "trend") { var b = d.tendencia_celdas.slope_per_decade[k]; if (!has(b)) return null; var t = Math.max(-1, Math.min(1, b / d.slopeMax)); return mix(midc, rgb(css(t < 0 ? "--neg" : "--pos")), Math.pow(Math.abs(t), 0.8)); }
   if (kind === "biv") { var B = d.biv; if (!B || !B.hab || B.hab[k] < 0 || B.sea[k] < 0) return null; return rgb(BIV[B.hab[k]][B.sea[k]]); }
   var n = nowClass(d, k), c = trendClass(d, k); if (n < 0 || c < 0) return null; return rgb(BI[n][c] || css("--mid"));
@@ -523,7 +552,11 @@ function drawFlat(g, w, h, d, kind) {    // one map with degree labels
   var r = d.region, nx = r.nx, ny = r.ny, s = Math.min((w - 90) / nx, (h - 80) / ny), ox = (w - nx * s) / 2 + 10, oy = (h - ny * s) / 2;
   geom = { s: s, ox: ox, oy: oy };
   if (kind === "biv" && !bivFor(d)) mapStatus("Computing the combined change…", true); else mapStatus("");
-  g.imageSmoothingEnabled = false; g.drawImage(mapImage(d, kind, kind === "suit" ? layerValues(d, state.year) : null), ox, oy, nx * s, ny * s);
+  g.imageSmoothingEnabled = false; g.drawImage(mapImage(d, kind, kind === "suit" ? layerValues(d, state.year) : kind === "forecast" ? d.projected : null), ox, oy, nx * s, ny * s);
+  if (kind === "forecast") {
+    var ft = d.tendencia_celdas; g.fillStyle = hatchPattern(g);
+    d.ocean_index.forEach(function (flat, k2) { if (!has(ft.slope_per_decade[k2]) || !has(ft.p_adj[k2]) || ft.p_adj[k2] >= ALPHA) g.fillRect(ox + (flat % nx) * s, oy + Math.floor(flat / nx) * s, s + 0.5, s + 0.5); });
+  }
   if (kind === "trend") {
     var t = d.tendencia_celdas; g.fillStyle = hatchPattern(g);
     d.ocean_index.forEach(function (flat, k2) { if (has(t.slope_per_decade[k2]) && !(t.p_adj[k2] < ALPHA)) g.fillRect(ox + (flat % nx) * s, oy + Math.floor(flat / nx) * s, s + 0.5, s + 0.5); });
@@ -538,7 +571,7 @@ function drawFlat(g, w, h, d, kind) {    // one map with degree labels
   g.strokeStyle = css("--ink-2"); g.lineWidth = 0.8; g.strokeRect(ox, oy, nx * s, ny * s);
   for (var lon = Math.ceil(r.lon_west / 5) * 5; lon <= r.lon_west + nx * r.cell_deg; lon += 5) label(g, Math.abs(lon) + "°" + (lon >= 0 ? "E" : "W"), ox + (lon - r.lon_west) / r.cell_deg * s, oy + ny * s + 12, "center");
   for (var lat = Math.floor(r.lat_north / 5) * 5; lat >= r.lat_north - ny * r.cell_deg; lat -= 5) label(g, lat + "°N", ox - 6, oy + (r.lat_north - lat) / r.cell_deg * s, "right");
-  var title = kind === "suit" ? state.year + " · habitat suitability" + (state.layer === "chl" ? " (temperature and chlorophyll)" : "") : kind === "trend" ? "Trend of habitat suitability per decade"
+  var title = kind === "suit" ? state.year + " · habitat suitability" + (state.layer === "chl" ? " (temperature and chlorophyll)" : "") : kind === "forecast" ? d.projectionYear + " · projected habitat suitability" : kind === "trend" ? "Trend of habitat suitability per decade"
     : kind === "bi" ? "Suitability now × its trend" : "Habitat trend × how much the sea has changed";
   g.font = "500 13px 'IBM Plex Mono',monospace"; g.fillStyle = css("--ink"); g.textAlign = "left"; g.textBaseline = "middle"; g.fillText(title, ox, oy - 14);
   if (kind === "suit" && state.layer === "temp") {   // line of the poleward limit of the year
@@ -577,6 +610,11 @@ canvas.addEventListener("mousemove", function (ev) {
     var B = d.biv && d.biv.hab ? d.biv : null, c = B && B.cell[k];
     t = where + (c ? " · habitat " + ["losing", "stable", "gaining"][B.hab[k]] + " (" + signed(tc.slope_per_decade[k], 3) + " per decade) · sea change " + ["low", "medium", "high"][B.sea[k]] +
       " (" + c.index.toFixed(1) + " swings: " + ENV_VARS.map(function (v, n) { return v[1] + " " + (has(c.z[n]) ? signed(c.z[n], 1) : "–"); }).join(", ") + ")" : " · no data");
+  } else if (kind === "forecast") {
+    var projected = d.projected[k], fp = tc.p_adj[k];
+    t = where + " · projected suitability in " + d.projectionYear + " " + (has(projected) ? (projected / 100).toFixed(2) : "–") +
+      (has(projected) ? (projected / 100 >= d.umbral_idoneo ? " · above suitable threshold" : " · below suitable threshold") : "") +
+      (has(fp) && fp < ALPHA ? " · trend significant" : " · trend uncertain");
   } else {
     var v = layerValues(d, state.year)[k], li = state.layer === "temp" ? d.limitante[d.anios.indexOf(state.year)][k] : null, seen = d.seen[flat];
     t = where + " · suitability " + (v === null ? "–" : (v / 100).toFixed(2)) + " in " + state.year;

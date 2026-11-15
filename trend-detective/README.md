@@ -88,7 +88,7 @@ The maps slide away and the graph panel takes the space. For the current selecti
 
 The Analysis screen requests a five-year forecast for each ticked time series from the Python API. It uses Darts damped additive exponential smoothing, without seasonality, and displays the median forecast with a 90% simulation interval. Interior gaps of up to two years are linearly interpolated; longer gaps or fewer than eight observed years produce no forecast. Predictions are extrapolations from the selected series, not causal projections.
 
-For a local preview with forecasts, run the backend on port 8001 and the static site on port 8000, then open http://localhost:8000/?datos=ficheros&api=http://localhost:8001. Install the backend dependencies from backend/requirements.txt first. If the backend is not connected, the charts still load but forecasts are unavailable.
+For a local preview with forecasts or Species data, run the backend on port 8001 and the static site on port 8000, then open http://localhost:8000/?datos=ficheros&api=http://localhost:8001. The `api` query parameter connects both the Trends forecasts and Species page to the backend. Install the backend dependencies from backend/requirements.txt first. If the backend is not connected, the charts still load but forecasts and Species data are unavailable.
 
 ## Where the statistics are computed
 
