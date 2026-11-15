@@ -4,7 +4,7 @@
 
    What the backend sends for a species (GET /api/habitat/especies/<name>):
      - its environmental profile: percentiles of the four chosen variables at its sightings worldwide;
-     - habitat suitability (0 to 100) of every 0.25° Mediterranean sea cell, every year since 1980;
+     - habitat suitability (0 to 100) of every 0.25° Mediterranean sea cell, every year since 2003 (the four variables);
      - yearly indicators with their trend: suitable area, centre and poleward limit of the habitat,
        observed poleward limit, thermal tolerance. Same method as the rest of the site: Sen's slope,
        modified Mann-Kendall test, FDR adjustment.
@@ -48,7 +48,7 @@ function deg(v, pos, neg) { return Math.abs(v).toFixed(2) + "°" + (v >= 0 ? pos
 
 // screen: "viz" | "analysis"; mode: "time" (stack of years) | "species" (stack of species) | "trend" | "bi";
 // focus: one stack layer opened flat; layer: "temp" | "chl" (variables in the suitability).
-var state = { page: "trends", screen: "viz", mode: "time", focus: false, layer: "chl", species: null, year: null, data: null, list: [] };
+var state = { page: "trends", screen: "viz", mode: "time", focus: false, layer: "temp", species: null, year: null, data: null, list: [] };
 
 /* ---------------- DOM: page switch, button groups, sidebar, main view, panel ---------------- */
 var options = document.querySelector(".options");
@@ -85,10 +85,7 @@ side.innerHTML =
   'role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="sp-suggest" aria-label="Scientific name">' +
   '<ul id="sp-suggest" role="listbox" hidden></ul></div>' +
   '<p class="fact dim">Names and record counts from OBIS. Computed on first request, then stored.</p></section>' +
-  '<section id="sp-layer-box"><h2>Variables in the map</h2><span class="seg small" id="sp-layer" role="group" aria-label="Variables in the map">' +
-  '<button type="button" data-layer="chl" aria-pressed="true">All four, 2003–</button><button type="button" data-layer="temp" aria-pressed="false">Temperature, 1980–</button></span>' +
-  '<p class="fact dim" id="sp-layer-note">&nbsp;</p></section>' +
-  '<section><h2>What is this?</h2><p class="fact dim">Every sighting of the species in the world (OBIS, since 1980) is matched to the sea conditions of its place and year. ' +
+  '<section><h2>What is this?</h2><p class="fact dim">Every sighting of the species in the world (OBIS, since 2003) is matched to the sea conditions of its place and year. ' +
   'That gives its environmental profile: the range of conditions where it lives. Habitat suitability (0 to 1) says how close each place of the Mediterranean, each year, ' +
   'is to that profile. It is a statistical match with four variables, not proof that the species is there.</p>' +
   '<p class="fact dim side-links"><a href="index.html">Start page</a> · <a href="method.html">How we chose the four variables</a> · <a href="https://github.com/martidalmases/cephalopods">Code on GitHub</a></p></section>';
@@ -113,8 +110,8 @@ row.innerHTML =
   '<section id="sp-obs-box"><h2>Observed poleward limit</h2><div id="sp-obs"></div></section>' +
   '<section><h2>What limits its habitat</h2><ul class="sp-limits" id="sp-limits"></ul></section>' +
   '<section><h2>Conditions where it is seen</h2><table class="allvars"><thead><tr><th>Variable</th><th>Typical range</th><th>Median</th></tr></thead><tbody id="sp-niche"></tbody></table>' +
-  '<p class="note">Typical range: 5th to 95th percentile of the conditions at its sightings, worldwide. Variables marked * cover every year since 1980 and make the yearly suitability; ' +
-  'chlorophyll starts in 2003 (satellite) and is a separate layer. <a href="?datos=mediterraneo-1982">See the trends of these variables</a>.</p></section>' +
+  '<p class="note">Typical range: 5th to 95th percentile of the conditions at its sightings, worldwide. The four variables marked * make the yearly suitability, 2003 to today ' +
+  '(chlorophyll is measured by satellite from 2003). <a href="?datos=mediterraneo-1980">See the trends of these variables</a>.</p></section>' +
   '<section><h2>Where it is seen in the world</h2><canvas id="sp-world" aria-label="World map of the sightings used"></canvas><p class="note" id="sp-world-note"></p></section>' +
   '<section><h2>Place</h2><p class="fact dim sp-cell" id="sp-cell">Open a map and point at it to read a place.</p></section>' +
   '<section><p class="note" id="sp-method"></p></section>' +
@@ -327,7 +324,6 @@ function panel() {
   var tests = Object.keys(ind).length;
   $("sp-method").textContent = "Trends: Sen's slope (median of the slopes between every pair of years) and the modified Mann-Kendall test, which allows for one year resembling the next. " +
     "The p-values of the " + tests + " indicators of this species are adjusted together (Benjamini-Hochberg), and so are those of the " + d.ocean_index.length.toLocaleString("en-GB") + " cells of the trend map. Significant means adjusted p < " + ALPHA + ".";
-  $("sp-layer-box").hidden = !d.idoneidad_chl;
   world();
 }
 function varName(id) { var v = state.data.variables.filter(function (x) { return x.id === id; })[0]; return v ? v.name : id; }
@@ -430,10 +426,7 @@ function refresh() {
   if (years.indexOf(state.year) < 0) state.year = years[years.length - 1];
   sel.innerHTML = years.slice().reverse().map(function (y) { return '<option value="' + y + '">' + y + " · seen in " + (d.seenYear[y] || 0) + " cells</option>"; }).join("");
   sel.value = state.year;
-  document.querySelectorAll("#sp-layer button").forEach(function (b) { b.setAttribute("aria-pressed", String(b.dataset.layer === state.layer)); });
   $("sp-period").textContent = "Yearly results " + years[0] + " to " + years[years.length - 1] + " · " + d.region.cell_deg + "° cells";
-  $("sp-layer-note").textContent = state.layer === "chl" ? "Temperature and chlorophyll together, " + years[0] + " to " + years[years.length - 1] + ". Trend maps always use the temperature index."
-    : "Coldest month, hottest month and unusually hot months, " + d.anios[0] + " to " + d.anios[d.anios.length - 1] + ".";
   var L = $("sp-legend"), land = '<span><span class="sw land"></span>land</span>';
   if (kind === "biv") {
     var B = d.biv && d.biv.hab ? d.biv : null, rows = ["gaining", "stable", "losing"].map(function (t, r) {
@@ -684,9 +677,6 @@ $("sp-year").addEventListener("change", function (ev) { setYear(Number(ev.target
 $("sp-prev").addEventListener("click", function () { setYear(state.year - 1); });
 $("sp-next").addEventListener("click", function () { setYear(state.year + 1); });
 $("sp-back").addEventListener("click", function () { state.focus = false; refresh(); });
-document.querySelectorAll("#sp-layer button").forEach(function (b) { b.addEventListener("click", function () {
-  state.layer = b.dataset.layer; if (state.mode === "trend" || state.mode === "bi") state.mode = "time"; refresh();
-}); });
 
 function start() {
   var wanted = new URLSearchParams(location.search).get("especie");

@@ -136,3 +136,4 @@ a:focus-visible{outline:2px solid var(--probe);outline-offset:2px}
 .top nav a.start{background:var(--ink);color:var(--sheet);text-transform:uppercase;letter-spacing:.06em;font-weight:600;font-size:.95rem;padding:12px 22px;border-radius:7px}
 .top nav a.start:hover{background:#0e6f6a;border-color:#0e6f6a}
 @media (max-width:520px){.top nav a.start{padding:8px 12px;font-size:.78rem}}
+.team .thanks{margin-top:14px;font-size:.9rem;color:var(--ink-2)}
