@@ -189,13 +189,18 @@ function indexOf(layer) {                   // {val: per cell, max: colour ceili
   indexCache[layer.key] = out; return out;
 }
 function trendClass(d, k) { var b = d.trend.slope_per_decade[k]; if (!has(b)) return -1; return d.trend.q[k] < ALPHA ? (b > 0 ? 2 : 0) : 1; }
-// Bivariate map: [second variable: falling, no trend, rising][first variable: falling, no trend, rising]. The centre is the neutral colour.
-var PAIR = [["#3b3f8f", "#8a6bb0", "#b03a8c"], ["#3f78c4", null, "#cf4a3f"], ["#3a9e6e", "#d9b93a", "#e2772b"]];
-var CLASS_WORD = ["falling", "no significant trend", "rising"];
+// Two-variable map: Pearson correlation of the two yearly series at each place (-1 opposite, +1 together).
+var pairCache = {};
+function pairCorr(layer) {
+  if (pairCache[layer.key]) return pairCache[layer.key];
+  var a = vars[layer.pair[0]].values, b = vars[layer.pair[1]].values, r = new Float64Array(nOcean), k;
+  for (k = 0; k < nOcean; k++) r[k] = pearson(a.map(function (row) { return row[k]; }), b.map(function (row) { return row[k]; }));
+  return (pairCache[layer.key] = r);
+}
 function cellColor(layer, k) {              // rgb triple, or null for "no data"
   if (layer.index) { var ix = indexOf(layer), v = ix.val[k]; if (isNaN(v)) return null;
     var m = rgb(C.mid), t = rgb(C.seq), w = Math.pow(clamp(v / ix.max, 0, 1), 0.8); return [m[0] + (t[0] - m[0]) * w, m[1] + (t[1] - m[1]) * w, m[2] + (t[2] - m[2]) * w]; }
-  if (layer.pair) { var a = trendClass(vars[layer.pair[0]], k), b = trendClass(vars[layer.pair[1]], k); if (a < 0 || b < 0) return null; return rgb(PAIR[b][a] || C.mid); }
+  if (layer.pair) { var r = pairCorr(layer)[k]; return isNaN(r) ? null : diverge(r); }
   var lv = layerValue(layer, k); return isNaN(lv) ? null : diverge(lv);
 }
 function layerImage(layer, grey) {          // 1 pixel per grid cell, cached; grey = ghost version
@@ -363,12 +368,14 @@ function drawFlat(g, M, layer, w, h) {       // front-facing map, clipped to a f
     g.fillStyle = C.probe; g.globalAlpha = 0.18; g.fill(); g.globalAlpha = 1; g.strokeStyle = C.probe; g.lineWidth = 1.5; g.setLineDash([4, 3]); g.stroke(); g.setLineDash([]); }
   g.restore();
   g.strokeStyle = C["ink-2"]; g.lineWidth = 0.8; g.strokeRect(fx, fy, fw, fh);
-  var z = view.zoom, lonStep = z >= 6 ? 1 : z >= 3 ? 2 : z >= 1.6 ? 5 : 10, latStep = z >= 6 ? 1 : z >= 3 ? 2 : 5, lon, lat, px, py;
+  var z = view.zoom, pxPerDeg = sc / r.cell_deg, lon, lat, px, py;   // label step: the smallest nice step that leaves room between labels
+  function stepFor(gap) { return [1, 2, 5, 10, 15, 30, 60].filter(function (s) { return s * pxPerDeg >= gap; })[0] || 90; }
+  var lonStep = stepFor(45), latStep = stepFor(22);
   for (lon = Math.ceil((r.lon_west + (fx - x0) / sc * r.cell_deg) / lonStep) * lonStep; ; lon += lonStep) { px = x0 + (lon - r.lon_west) / r.cell_deg * sc; if (px > fx + fw + 0.5) break;
     text(g, deg(lon, "E", "W", 0), px, fy + fh + 12, { align: "center", size: 10 }); }
   for (lat = Math.floor((r.lat_north - (fy - y0) / sc * r.cell_deg) / latStep) * latStep; ; lat -= latStep) { py = y0 + (r.lat_north - lat) / r.cell_deg * sc; if (py > fy + fh + 0.5) break;
     text(g, deg(lat, "N", "S", 0), fx - 6, py, { align: "right", size: 10 }); }
-  text(g, layer.label + (layer.year !== undefined ? " · " + vars[state.varId].info.name : layer.index ? " · " + layer.index.length + " variables" : layer.pair ? " · direction of the two trends" : " · trend per decade"), fx, fy - 14, { color: C.ink, weight: "500", size: 13 });
+  text(g, layer.label + (layer.year !== undefined ? " · " + vars[state.varId].info.name : layer.index ? " · " + layer.index.length + " variables" : layer.pair ? " · correlation at each place" : " · trend per decade"), fx, fy - 14, { color: C.ink, weight: "500", size: 13 });
   if (z > 1.01) text(g, "zoom ×" + z.toFixed(1) + " · hold Shift and drag to move", fx + fw, fy - 14, { align: "right", size: 10.5 });
 }
 function hit(px, py) {                       // -> {layer, slot?, i, j, flat, cell} or null
@@ -504,8 +511,8 @@ function updatePanel() {
   var mo = !multi && !idx && state.sel.type === "region" ? vars[state.varId].regional.monthly : null;
   $("monthly").hidden = !mo;
   if (mo) drawMonths($("months"), mo, info);
-  var tb = $("allvars"); tb.textContent = "";
-  meta.variables.forEach(function (v) {
+  var tb = $("allvars"), onScreen = pickedIds(); tb.textContent = "";
+  meta.variables.filter(function (v) { return onScreen.indexOf(v.id) >= 0; }).forEach(function (v) {
     var s = seriesFor(v.id), tr = el("tr", (multi || state.mode === "index" ? pickedIds().indexOf(v.id) >= 0 : v.id === state.varId) ? "on" : "");
     tr.appendChild(el("td", "", v.name)); tr.appendChild(el("td", "", direction(s, vars[v.id]))); tr.appendChild(el("td", "", s.p < ALPHA ? "Yes" : "No"));
     tr.addEventListener("click", function () { pickVar(v.id); }); tb.appendChild(tr);
@@ -537,8 +544,12 @@ function renderAnalysis() {
 
   var rowh = el("div", "a-row"); rowh.appendChild(el("h2", "", "Correlation between variables")); rowh.firstChild.style.margin = "0";
   var seg = el("span", "seg small"); [["raw", "yearly values"], ["detrended", "trend removed"]].forEach(function (o) {
-    var b = el("button", "", o[1]); b.type = "button"; b.setAttribute("aria-pressed", String(state.corr === o[0])); b.addEventListener("click", function () { state.corr = o[0]; renderAnalysis(); }); seg.appendChild(b); });
+    var b = el("button", "", o[1]); b.type = "button"; b.setAttribute("aria-pressed", String(state.corr === o[0])); b.addEventListener("click", function () {
+      var keep = [root, root.parentNode, document.scrollingElement].map(function (e) { return [e, e.scrollTop]; });
+      state.corr = o[0]; renderAnalysis(); keep.forEach(function (k) { k[0].scrollTop = k[1]; });
+    }); seg.appendChild(b); });
   rowh.appendChild(seg); right.appendChild(rowh);
+  right.appendChild(el("p", "note", "Yearly values: compares the series as they are, so two variables that both rise over time look related. Trend removed: compares only the ups and downs from one year to the next."));
   var series = meta.variables.map(function (v) { var s = seriesFor(v.id); return state.corr === "raw" ? s.v : detrend(s.v, s.slope); });
   var ct = el("table", "corr"), r0 = el("tr"); r0.appendChild(el("th", "", "")); meta.variables.forEach(function (v, k) { r0.appendChild(el("th", "", String(k + 1))); }); ct.appendChild(r0);
   meta.variables.forEach(function (v, a) {
@@ -586,11 +597,10 @@ function updateLegend() {
     var ix = indexOf(indexLayer());
     parts.push("<span>0<span class=\"ramp seq\"></span>≥ " + ix.max.toFixed(1) + "</span>", "<span>significant change over the period ÷ year-to-year variability, mean of " + state.indexVars.length + " variable" + (state.indexVars.length > 1 ? "s" : "") + "</span>");
   } else if (state.mode === "pair") {
-    var pa = vars[state.pair[0]].info.name, pb = vars[state.pair[1]].info.name, grid = "<span class=\"bi\">";
-    [2, 1, 0].forEach(function (b) { [0, 1, 2].forEach(function (a) { grid += "<i style=\"background:" + (PAIR[b][a] || C.mid) + "\" title=\"" + pa + " " + CLASS_WORD[a] + ", " + pb + " " + CLASS_WORD[b] + "\"></i>"; }); });
-    parts.push(grid + "</span>", "<span>columns, left to right: " + pa + " falling · no significant trend · rising<br>rows, bottom to top: " + pb + " falling · no significant trend · rising</span>");
+    parts.push(ramp("−1 opposite", "+1 together"), "<span>correlation of the yearly values of " + vars[state.pair[0]].info.name + " and " + vars[state.pair[1]].info.name + " at each place</span>");
   } else parts.push(ramp("falling", "rising"), state.mode === "trend" ? "<span>range ±" + d.scale.slope + unit(info) + " per decade</span>" : "<span>one fixed range per variable (units differ)</span>");
   if (fl && fl.varId !== undefined && isFlat()) parts.push("<span><span class=\"sw hatch\"></span>not significant (adjusted p ≥ " + ALPHA + ")</span>");
+  if (state.mode !== "time") parts.push("<span class=\"br\"></span>");
   parts.push("<span><span class=\"sw land\"></span>land</span>", "<span><span class=\"sw nodata\"></span>no data</span>", "<span><span class=\"sw probe\"></span>selection</span>");
   node.innerHTML = parts.concat(tail).join("");
   var bl = $("baseline"); if (bl) bl.querySelectorAll("button").forEach(function (b) { b.addEventListener("click", function () { state.baseline = b.dataset.b; render(); }); });
@@ -755,8 +765,8 @@ canvas.addEventListener("pointermove", function (e) {
     var iv = indexOf(h.layer).val[h.cell], moving = h.layer.index.filter(function (id) { return changeOf(id)[h.cell] > 0; }).map(function (id) { return vars[id].info.name + (vars[id].trend.slope_per_decade[h.cell] > 0 ? " ↑" : " ↓"); });
     s = cellLonLat(h.flat) + " · change index " + (isNaN(iv) ? "–" : iv.toFixed(2)) + (moving.length ? " · " + moving.slice(0, 3).join(", ") + (moving.length > 3 ? " and " + (moving.length - 3) + " more" : "") : " · nothing changing significantly");
   } else if (h.layer.pair) {
-    var ca = trendClass(vars[h.layer.pair[0]], h.cell), cb = trendClass(vars[h.layer.pair[1]], h.cell);
-    s = cellLonLat(h.flat) + " · " + vars[h.layer.pair[0]].info.name + ": " + (ca < 0 ? "no data" : CLASS_WORD[ca]) + " · " + vars[h.layer.pair[1]].info.name + ": " + (cb < 0 ? "no data" : CLASS_WORD[cb]);
+    var rc = pairCorr(h.layer)[h.cell];
+    s = cellLonLat(h.flat) + " · correlation " + (isNaN(rc) ? "–" : num(rc, 2)) + " · " + vars[h.layer.pair[0]].info.name + " and " + vars[h.layer.pair[1]].info.name;
   } else { var dv = vars[h.layer.varId]; s = dv.info.name + " · " + cellLonLat(h.flat) + " · " + num(dv.trend.slope_per_decade[h.cell], dv.info.decimals + 1, true) + unit(dv.info) + " per decade, " + (!has(dv.trend.q[h.cell]) ? "too few years for a trend" : dv.trend.q[h.cell] < ALPHA ? "significant" : "not significant"); }
   tip.textContent = s; tip.style.left = Math.min(e.clientX, window.innerWidth - 400) + "px"; tip.style.top = e.clientY + "px"; tip.style.opacity = 1;
 });

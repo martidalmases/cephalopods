@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css?v=4">
-<link rel="stylesheet" href="species.css?v=15">
+<link rel="stylesheet" href="species.css?v=16">
 </head>
 <body>
 <div class="app" id="app">
@@ -47,9 +47,9 @@
       </span>
       <span class="seg" id="amodes" role="group" aria-label="Analysis options" hidden>
         <button type="button" data-a="corr" aria-pressed="true" title="Time series, trends and correlations of the ticked variables">Correlations</button>
-        <button type="button" data-a="index" aria-pressed="false" title="How much each place has changed, all the chosen variables together">Change index</button>
-        <button type="button" data-a="pair" aria-pressed="false" title="Two trends on one map">Two variables</button>
+        <button type="button" data-a="pair" aria-pressed="false" title="How closely the two variables move together at each place">Two variables</button>
       </span>
+      <a class="methods-link" id="methods-link" href="method.html">Further information on our methods &rarr;</a>
     </div>
 
     <div class="row" id="row">
@@ -87,7 +87,7 @@
           <div id="multi" hidden></div>
           <p class="fact dim" id="index-note" hidden>For each ticked variable we take how much the place has changed over the whole period (Sen's slope × number of years) and divide it by how much it swings from one year to the next. A value of 2 means the place has moved two typical swings away from where it started. Variables whose trend is not significant count as 0. The index is the mean over the ticked variables: it shows where the sea is changing most, whatever the variable.</p>
           <div id="allvars-wrap">
-            <h2>Every variable, same selection</h2>
+            <h2>Same selection</h2>
             <table class="allvars"><thead><tr><th>Variable</th><th>Trend</th><th>Signif.</th></tr></thead><tbody id="allvars"></tbody></table>
           </div>
         </div>
@@ -100,7 +100,7 @@
 </div>
 <div id="tip" role="status"></div>
 <script src="stats.js?v=1"></script>
-<script src="app.js?v=11"></script>
-<script src="species.js?v=18"></script>
+<script src="app.js?v=12"></script>
+<script src="species.js?v=19"></script>
 </body>
 </html>

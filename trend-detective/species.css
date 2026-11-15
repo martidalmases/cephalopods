@@ -75,3 +75,7 @@ body,.side,.options,.legend,.stackbar,.panel{transition:background-color .35s ea
 #sp-world{width:100%;aspect-ratio:2/1;display:block;border-radius:3px}
 #sp-layer{margin-bottom:6px}
 .varlist .unit[title]{cursor:help}
+
+/* Link to the method article, at the right end of the top bar. */
+.options .methods-link{margin-left:auto;align-self:center;white-space:nowrap;font-size:.86rem;font-weight:500;color:var(--accent);text-decoration:none}
+.options .methods-link:hover{text-decoration:underline;text-underline-offset:3px}

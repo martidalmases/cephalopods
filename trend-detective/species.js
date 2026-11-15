@@ -66,7 +66,7 @@ function seg(id, label, items, on) {
     var b = el("button", "", it[1]); b.type = "button"; b.dataset.v = it[0]; if (it[2]) b.title = it[2];
     b.addEventListener("click", function () { on(it[0]); }); g.appendChild(b);
   });
-  options.appendChild(g); return g;
+  options.insertBefore(g, $("methods-link")); return g;
 }
 function press(g, v) { g.querySelectorAll("button").forEach(function (b) { b.setAttribute("aria-pressed", String(b.dataset.v === v)); }); }
 var spScreens = seg("sp-screens", "Screen", [["viz", "Visualisation"], ["analysis", "Analysis"]], setScreen);
