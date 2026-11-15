@@ -211,6 +211,17 @@ VARIABLES = {
              "desde": "1980-01-01", "hasta": None},
         ],
     },
+    # Sólo en el recolector mensual (recolector.py); sin consulta diaria.
+    "humedad_especifica": {
+        "nombre": "Humedad específica del aire junto al mar (nivel más bajo) - MERRA-2",
+        "unidades": "g kg-1",
+        "fuentes": [],
+    },
+    "vapor_agua": {
+        "nombre": "Vapor de agua total en la columna - MERRA-2",
+        "unidades": "kg m-2",
+        "fuentes": [],
+    },
 }
 
 VARIABLES_POR_DEFECTO = ["temperatura", "salinidad", "fitoplancton", "fluorescencia", "no2", "aerosoles",

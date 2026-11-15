@@ -22,15 +22,19 @@ python3 -m http.server 8000      # from this folder
 # open http://localhost:8000
 ```
 
-Opening `index.html` directly from disk does not work: browsers block loading
+Opening the pages directly from disk does not work: browsers block loading
 the JSON files that way.
 
 ## Files
 
 | File | Role |
 |---|---|
-| `index.html`, `style.css`, `app.js` | The website. Plain HTML/CSS/JS, no build step, no dependencies. |
-| `species.js`, `species.css` | The Species page (habitat suitability per species). Self-contained; it calls the backend at `/api/` (`backend/api.py`), which nginx forwards (`backend/despliegue/trend.cooking.nginx`). Without the backend the Trends page still works. |
+| `index.html`, `home.js`, `site.css`, `team.json` | Start page: short introduction, the three portals and the team block. Edit `team.json` for the team name, text, members (`{"name": "", "role": ""}`) and photo; put the photo next to it as `team.jpg`. |
+| `explore.html`, `style.css`, `app.js` | The explorer (portal 1, variables). Plain HTML/CSS/JS, no build step, no dependencies. |
+| `stats.js` | Trend and significance for selections drawn in the browser: Sen's slope, modified Mann-Kendall, FDR. Same method as `backend/tendencias.py` (checked against it value by value). |
+| `species.js`, `species.css` | Portal 2, species: habitat suitability in the Mediterranean (0.25° cells) and its indicators. Self-contained; it asks the backend for one JSON per species (`/api/habitat/especies/<name>`, `backend/especies_habitat.py`). The page gets a slightly different background (`data-portal="species"`). Without the backend the variables portal still works. |
+| `method.html`, `method.js` | Portal 3, the article on how the four species variables were chosen. It draws `methodology/variable_selection.md` as it is, so **editing that Markdown file changes the page**; the four cards come from `methodology/results/summary.json`. |
+| `methodology/` | The variable-selection study: text, figures, results, data and scripts (`run_all.sh` reruns it). |
 | `data/meta.json` | Region, grid, years, list of variables. |
 | `data/<id>.json` | One file per variable: yearly values, trend, significance. |
 | `pipeline/fetch_real_data.py` | Downloads the real data and writes everything in `data/`. |
@@ -88,9 +92,19 @@ For a local preview with forecasts, run the backend on port 8001 and the static 
 
 ## Where the statistics are computed
 
-- Per-cell and whole-region trends come from the Python pipeline (in the JSON files).
-- Area selections are averaged (area-weighted) and fitted **in the browser** with the same method:
-  least-squares slope and a two-sided t-test. See `ols()` in `app.js`.
+One method everywhere: **Sen's slope**, the **modified Mann-Kendall test** (Hamed and Rao, 1998: Mann-Kendall
+with the variance corrected for autocorrelation) and the **Benjamini-Hochberg FDR adjustment** for multiple tests.
+
+- Per-cell and whole-region trends come from the Python backend (`backend/tendencias.py`, in the JSON files).
+  The map hatching uses `trend.p_adj` (adjusted over all cells of the map); the sea average uses
+  `regional.p_adj` (adjusted over the variables of the set).
+- Area selections are averaged (area-weighted) and fitted **in the browser** with the same method
+  (`stats.js`), adjusting over the variables of the table.
+- Change index (map mode): per variable, |Sen slope| × period ÷ standard deviation of the detrended years, 0
+  where the trend is not significant; the index is the mean over the ticked variables. Two variables (map mode):
+  3 × 3 classes, falling / no significant trend / rising for each of the two.
+- Month by month (right panel, sea average): trend of each calendar month and of the whole monthly series with
+  the seasonal cycle removed (`regional.monthly`, written by the backend for the monthly variables).
 - Correlations are computed in the browser (`pearson()` and `detrend()` in `app.js`).
 
 ## Data format
@@ -123,8 +137,10 @@ For a local preview with forecasts, run the backend on port 8001 and the static 
 {
   "id": "sst",
   "values": [[...], [...]],
-  "trend": {"slope_per_decade": [...], "p": [...], "method": "least-squares slope, two-sided t-test"},
-  "regional": {"mean": [...], "slope_per_decade": 0.343, "p": 0.0},
+  "trend": {"slope_per_decade": [...], "p": [...], "p_adj": [...], "method": "Sen slope, modified Mann-Kendall (Hamed-Rao), Benjamini-Hochberg FDR"},
+  "regional": {"mean": [...], "slope_per_decade": 0.343, "p": 0.0, "p_adj": 0.0,
+               "monthly": {"climatology": [12], "slope_per_decade": [12], "p": [12], "p_adj": [12],
+                           "anomaly": {"slope_per_decade": 0.35, "p": 0.0, "n_months": 552}}},
   "scale": {"anomaly": 0.775, "slope": 0.526}
 }
 ```
@@ -173,6 +189,9 @@ python3 pipeline/fetch_real_data.py --selftest
 - MERRA-2 is a reanalysis (a model constrained by observations), not a direct measurement.
 - The MODIS fluorescence decline is partly sensor ageing, not only a change in the sea.
 - Pixels are thinned to about 0.5° rather than averaged, as in the backend; coastal cells can be noisy.
-- The trend test is ordinary least squares with a t-test. It does not correct for autocorrelation
-  or for testing thousands of cells at once.
+- The static files in `data/` (`?datos=ficheros`) were made before the method changed: they carry a
+  least-squares slope and a t-test p-value and no `p_adj`; the site reads them as they are.
+- The modified Mann-Kendall test reduces the false positives that autocorrelation causes but does not
+  remove them in short series: in our simulation of 46 years of trendless noise with lag-1 autocorrelation
+  0.6, plain Mann-Kendall flags 28 % of series and the modified test 18 % (5 % with no autocorrelation).
 - Colours use one diverging blue/red scale for every variable.

@@ -18,8 +18,7 @@
 
 #sp-row .stage canvas{position:absolute;inset:0;width:100%;height:100%;display:block;cursor:crosshair}
 #sp-row .loading{pointer-events:none;text-align:center;padding:0 24px}
-#sp-row .legend .ramp{background:linear-gradient(90deg,var(--mid),var(--neg))}
-#sp-row .legend .ramp.div{background:linear-gradient(90deg,var(--pos),var(--mid),var(--neg))}
+#sp-row .legend .ramp.sp{background:linear-gradient(90deg,var(--mid),var(--neg))}
 .stackbar #sp-back{margin-right:8px}
 .sp-biv{border-collapse:separate;border-spacing:2px;font-size:.72rem;color:var(--ink-2)}
 .sp-biv caption{caption-side:top;padding-bottom:2px;white-space:nowrap}
@@ -62,3 +61,17 @@
 #pages button[aria-pressed="true"]{color:var(--sheet)}
 .varlist button[aria-pressed="true"]{border-left-color:var(--accent)}
 .side h2,.panel h2{color:var(--accent)}
+/* v10: species portal. A slightly different background tells you which portal you are in. */
+:root[data-portal="species"]{--paper:#e9f2f0; --sheet:#f6fbfa; --rule:#c5d6d3}
+@media (prefers-color-scheme: dark){ :root[data-portal="species"]:not([data-theme="light"]){--paper:#0d1d1e; --sheet:#132223; --rule:#2b4244} }
+:root[data-portal="species"][data-theme="dark"]{--paper:#0d1d1e; --sheet:#132223; --rule:#2b4244}
+body,.side,.options,.legend,.stackbar,.panel{transition:background-color .35s ease,border-color .35s ease}
+.sp-panel .mini{display:flex;flex-direction:column;gap:4px;margin-bottom:12px}
+.sp-panel .mini h3{font-size:.84rem;font-weight:600}
+.sp-panel .mini canvas{width:100%;height:96px;display:block}
+.sp-panel .mini p{font-family:var(--mono);font-size:.74rem;color:var(--ink-2)}
+.sp-panel .mini p.sp-extra{color:var(--ink)}
+.sp-panel .verdict{font-size:.86rem}
+#sp-world{width:100%;aspect-ratio:2/1;display:block;border-radius:3px}
+#sp-layer{margin-bottom:6px}
+.varlist .unit[title]{cursor:help}

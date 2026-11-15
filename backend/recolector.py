@@ -49,7 +49,8 @@ log = logging.getLogger("recolector")
 
 VARIABLES_RECOLECTADAS = ["sst", "temperatura", "salinidad", "fitoplancton", "fluorescencia", "aerosoles",
                           "evaporacion", "precipitacion", "calor_latente", "calor_sensible", "viento_velocidad",
-                          "viento_direccion", "dif_temp_mar_aire", "dif_humedad_mar_aire"]
+                          "viento_direccion", "dif_temp_mar_aire", "dif_humedad_mar_aire",
+                          "humedad_especifica", "vapor_agua"]
 SOLAPE_MESES = 2               # se vuelven a pedir los últimos meses (productos NRT que se corrigen)
 HILOS = 4                      # peticiones simultáneas
 OPENDAP = "https://opendap.earthdata.nasa.gov"
@@ -59,7 +60,7 @@ CMR = "https://cmr.earthdata.nasa.gov/search"
 
 # MERRA-2 mensual: colección -> variables de MERRA que se piden en una sola petición.
 MERRA_COLECCIONES = {
-    "M2TMNXSLV": ["TS", "T2M"],
+    "M2TMNXSLV": ["TS", "T2M", "TQV"],
     "M2TMNXFLX": ["EVAP", "EFLUX", "HFLUX", "SPEED", "ULML", "VLML", "QLML", "PRECTOTCORR"],
     "M2TMNXAER": ["TOTEXTTAU", "DUEXTTAU"],
 }
@@ -76,6 +77,8 @@ MERRA_VARIABLES = {
     "viento_direccion": None,          # se calcula aparte: media vectorial (ver _a_rejilla_merra)
     "aerosoles": lambda m: m["TOTEXTTAU"],
     "polvo_sahariano": lambda m: m["DUEXTTAU"],
+    "humedad_especifica": lambda m: m["QLML"] * 1000,                    # kg/kg -> g/kg
+    "vapor_agua": lambda m: m["TQV"],                                   # kg m-2
 }
 _qsat = np.vectorize(_humedad_saturacion_mar, otypes=[float])
 
@@ -496,6 +499,14 @@ def main() -> None:
     if not args.sin_especies:
         import especies
         especies.calcular_principales()
+        # Almacén de hábitat (0,25°, las cuatro variables de especies) y hábitat de las especies principales.
+        try:
+            import especies_habitat
+            import habitat
+            habitat.actualizar(_token_earthdata(None))
+            especies_habitat.calcular_principales()
+        except Exception as e:  # no debe impedir exportar el resto
+            log.error("hábitat FALLO: %s", e)
     import exportar_trends
     try:
         exportar_trends.exportar()      # datos reales para la pantalla Trends de la web
