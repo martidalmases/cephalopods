@@ -644,7 +644,7 @@ function start() {
 // The Variables screen (app.js) reads one set at a time; changing it reloads the page with ?datos=<set>.
 (function dataSetPicker() {
   var place = $("region-name"); if (!place) return;
-  var current = new URLSearchParams(location.search).get("datos") || "mundo-1982";
+  var current = new URLSearchParams(location.search).get("datos") || "mundo-1980";
   var sel = el("select"); sel.id = "data-set"; sel.setAttribute("aria-label", "Region");
   sel.className = "sp-select";
   place.parentNode.insertBefore(sel, place.nextSibling);
@@ -660,6 +660,8 @@ function start() {
       return '<option value="' + d.id + '">' + d.region + ", " + d.desde + "–" + d.hasta + "</option>";
     }).join("");
     sel.value = current;
+    var here = sets.filter(function (d) { return d.id === current; })[0];   // a set from an old link: show it too
+    if (sel.value !== current && here) { sel.insertAdjacentHTML("beforeend", '<option value="' + here.id + '">' + here.region + ", " + here.desde + "–" + here.hasta + "</option>"); sel.value = current; }
   }).catch(function () { sel.hidden = true; });
   sel.addEventListener("change", function () {
     var q = new URLSearchParams(location.search); q.set("datos", sel.value);

@@ -8,7 +8,7 @@
 
 // Real data from the backend (/api/trends/<set>/, made by backend/exportar_trends.py); "?datos=<set>" picks
 // the region and period. "?datos=ficheros" reads the static files in data/ (pipeline/fetch_real_data.py).
-var DATA_SET = new URLSearchParams(location.search).get("datos") || "mundo-1982";   // world ocean, first set with sea temperature
+var DATA_SET = new URLSearchParams(location.search).get("datos") || "mundo-1980";   // world ocean, most years (satellite variables start later: null before)
 var DATA_DIR = DATA_SET === "ficheros" || DATA_SET === "sintetico" ? "data/" : "/api/trends/" + encodeURIComponent(DATA_SET) + "/";
 var API_ROOT = (new URLSearchParams(location.search).get("api") || "").replace(/\/$/, "");
 var VISIBLE = 4;                 // layers in focus in a stack
@@ -65,6 +65,9 @@ function load() {
       });
     }));
   }).then(function () {
+    var FIRST = ["sst", "sst_min", "sst_max", "mhw", "chl"];   // the species variables lead the list (stable sort keeps the rest)
+    function rank(v) { var i = FIRST.indexOf(v.id); return i < 0 ? FIRST.length : i; }
+    meta.variables.sort(function (a, b) { return rank(a) - rank(b); });
     state.varId = meta.variables[0].id;
     state.year = meta.years[meta.years.length - 1];
     state.shown = meta.variables.slice(0, VISIBLE).map(function (v) { return v.id; });
