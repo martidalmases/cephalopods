@@ -332,10 +332,25 @@ function panel() {
 }
 function varName(id) { var v = state.data.variables.filter(function (x) { return x.id === id; })[0]; return v ? v.name : id; }
 
+// Land for the world map: the 2° sea cells of the Variables world set (everything else is land).
+var landMask = null;
+function loadLand() {
+  if (landMask) return;
+  landMask = api("/trends/mundo-1980/meta.json").then(function (m) {
+    var sea = new Uint8Array(m.region.nx * m.region.ny); m.ocean_index.forEach(function (f) { sea[f] = 1; });
+    landMask = { r: m.region, sea: sea }; if (state.data) world();
+  }).catch(function () { landMask = null; });
+}
 function world() {                               // where the profile comes from: sightings in 2° cells
   var d = state.data, cv = $("sp-world"), f = fit(cv), g = f.g; if (f.w < 40) return;
   g.fillStyle = css("--paper"); g.fillRect(0, 0, f.w, f.h);
   var X = function (lon) { return (lon + 180) / 360 * f.w; }, Y = function (lat) { return (90 - lat) / 180 * f.h; }, r = d.region;
+  loadLand();
+  if (landMask && landMask.sea) {                // land cells, drawn under the sightings
+    var M = landMask.r, cw = M.cell_deg / 360 * f.w + 0.5, ch = M.cell_deg / 180 * f.h + 0.5, k;
+    g.fillStyle = css("--land");
+    for (k = 0; k < M.nx * M.ny; k++) if (!landMask.sea[k]) g.fillRect(X(M.lon_west + (k % M.nx) * M.cell_deg), Y(M.lat_north - Math.floor(k / M.nx) * M.cell_deg), cw, ch);
+  }
   g.fillStyle = css("--probe");
   d.mundo.forEach(function (p) { g.globalAlpha = Math.min(1, 0.45 + Math.log10(p[2] + 1) * 0.3); g.fillRect(X(p[1] - 1), Y(p[0] + 1), Math.max(1.5, f.w / 180), Math.max(1.5, f.h / 90)); });
   g.globalAlpha = 1; g.strokeStyle = css("--ink"); g.lineWidth = 1;
