@@ -131,3 +131,8 @@ a:focus-visible{outline:2px solid var(--probe);outline-offset:2px}
   .portal{min-height:0}
 }
 @media (max-width:520px){.top{padding:0 12px;gap:8px}.top .logo-name{display:none}.top nav a{padding:6px 7px;font-size:.84rem}.section-head{flex-direction:column;gap:4px}}
+/* Start page: one big button into the explorer. */
+.top nav{align-items:center}
+.top nav a.start{background:var(--ink);color:var(--sheet);text-transform:uppercase;letter-spacing:.06em;font-weight:600;font-size:.95rem;padding:12px 22px;border-radius:7px}
+.top nav a.start:hover{background:#0e6f6a;border-color:#0e6f6a}
+@media (max-width:520px){.top nav a.start{padding:8px 12px;font-size:.78rem}}

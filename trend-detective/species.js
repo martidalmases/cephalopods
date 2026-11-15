@@ -71,7 +71,7 @@ function seg(id, label, items, on) {
 function press(g, v) { g.querySelectorAll("button").forEach(function (b) { b.setAttribute("aria-pressed", String(b.dataset.v === v)); }); }
 var spScreens = seg("sp-screens", "Screen", [["viz", "Visualisation"], ["analysis", "Analysis"]], setScreen);
 var spModes = seg("sp-modes", "Visualisation options", [["time", "Stack by time"], ["species", "Stack by species"],
-  ["trend", "Trend map"], ["bi", "Now × trend", "Suitability of the last years and its trend on one map"]], setMode);
+  ["trend", "Trend map"]], setMode);
 function setScreen(v) { state.screen = v; state.focus = false; setPage(state.page); }
 function setMode(v) { state.mode = v; state.focus = false; refresh(); }
 
