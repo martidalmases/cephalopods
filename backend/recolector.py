@@ -513,6 +513,12 @@ def main() -> None:
         exportar_trends.exportar()      # datos reales para la pantalla Trends de la web
     except Exception as e:
         log.error("exportar_trends FALLO: %s", e)
+    import catalogo_especies
+    if catalogo_especies.caducado():   # lista de especies del buscador, una vez al mes
+        try:
+            catalogo_especies.actualizar()
+        except Exception as e:
+            log.error("catalogo_especies FALLO: %s", e)
 
 
 if __name__ == "__main__":

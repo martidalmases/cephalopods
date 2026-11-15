@@ -240,6 +240,13 @@ def buscar_especies(texto: str, limite: int = 15) -> list[dict]:
     (con «octo» no sale ninguna especie), así que se usa para encontrar géneros y grupos, y
     después se piden sus especies con su número de registros.
     """
+    # Catálogo local de todas las especies de OBIS (catalogo_especies.py): sin consultar
+    # OBIS en cada tecla. Si todavía no se ha descargado, se busca en línea como antes.
+    import catalogo_especies
+    local = catalogo_especies.buscar(texto, limite)
+    if local is not None:
+        return local
+
     palabras = texto.split()
     if not palabras:
         return []

@@ -33,6 +33,7 @@ datos/
 | `recolector.py` | Fills `ambiente.zarr` with the missing months (and revisits the latest ones). |
 | `almacen.py` | The two global grids (`BASE` 1°, `FINA` 0.5°), monthly axis, regridding from any source grid, Zarr and xarray. |
 | `especies.py` | Yearly means, environmental niche and habitat suitability of each species per year. |
+| `catalogo_especies.py` | Local list of all 161,000 species with OBIS records (`datos/catalogo_especies.json.gz`, 2 MB, refreshed monthly): the species search answers in milliseconds without asking OBIS. |
 | `exportar_trends.py` | Exports the real data in the format of the Trends screen. |
 | `pronostico.py` | 5-year forecast of a yearly series for the Analysis screen (`POST /api/forecast`, Darts). |
 | `api.py` | FastAPI API for the website. Docs at `/docs`. |
@@ -291,6 +292,7 @@ datos/
 | `recolector.py` | Rellena `ambiente.zarr` con los meses que falten (y repasa los últimos). |
 | `almacen.py` | Las dos rejillas mundiales (`BASE` 1°, `FINA` 0,5°), eje mensual, paso de cualquier rejilla a las nuestras, Zarr y xarray. |
 | `especies.py` | Medias anuales, nicho ambiental e idoneidad del hábitat de cada especie por año. |
+| `catalogo_especies.py` | Lista local de las 161.000 especies con registros en OBIS (`datos/catalogo_especies.json.gz`, 2 MB, se renueva cada mes): el buscador responde en milisegundos sin consultar OBIS. |
 | `exportar_trends.py` | Exporta los datos reales al formato de la pantalla Trends. |
 | `pronostico.py` | Predicción a 5 años de una serie anual para la pantalla Analysis (`POST /api/forecast`, Darts). |
 | `api.py` | API FastAPI para la web. Documentación en `/docs`. |
