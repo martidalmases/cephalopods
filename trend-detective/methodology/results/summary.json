@@ -1,0 +1,519 @@
+{
+ "final_variables": [
+  "sst_winter_min",
+  "sst_summer_max",
+  "mhw_months",
+  "chl"
+ ],
+ "period": "2003-2025",
+ "region": "Mediterranean Sea, 0.5 degree cells",
+ "note": "decision and reason are the team's judgement, informed by the tests; every number comes from results/*.csv",
+ "variables": [
+  {
+   "id": "sst",
+   "name": "Sea surface temperature, yearly mean",
+   "unit": "°C",
+   "source": "NASA MERRA-2",
+   "nasa": true,
+   "decision": "redundant",
+   "reason": "Explained by the coldest and hottest month (VIF 32).",
+   "trend": {
+    "pct_cells_significant": 99.2687,
+    "basin_slope_per_decade": 0.5034,
+    "basin_p": 0.0
+   },
+   "importance_share": {
+    "all_sources": null,
+    "nasa_only": null
+   },
+   "transfer": {
+    "kept_across_basin": null,
+    "kept_with_coordinates": null,
+    "sets_passed": null
+   }
+  },
+  {
+   "id": "sst_winter_min",
+   "name": "Coldest-month sea temperature",
+   "unit": "°C",
+   "source": "NASA MERRA-2",
+   "nasa": true,
+   "decision": "final",
+   "reason": "Statistics and mechanism agree; passes every test in every set.",
+   "trend": {
+    "pct_cells_significant": 85.3748,
+    "basin_slope_per_decade": 0.5172,
+    "basin_p": 0.0003
+   },
+   "importance_share": {
+    "all_sources": 0.1726,
+    "nasa_only": 0.1357
+   },
+   "transfer": {
+    "kept_across_basin": 1.131,
+    "kept_with_coordinates": 1.5023,
+    "sets_passed": "4 of 4"
+   }
+  },
+  {
+   "id": "sst_summer_max",
+   "name": "Hottest-month sea temperature",
+   "unit": "°C",
+   "source": "NASA MERRA-2",
+   "nasa": true,
+   "decision": "final",
+   "reason": "Kept on mechanism (upper thermal limit); low importance, passes in 3 of 4 sets.",
+   "trend": {
+    "pct_cells_significant": 80.8044,
+    "basin_slope_per_decade": 0.6756,
+    "basin_p": 0.0015
+   },
+   "importance_share": {
+    "all_sources": 0.0317,
+    "nasa_only": 0.0295
+   },
+   "transfer": {
+    "kept_across_basin": 2.3652,
+    "kept_with_coordinates": 0.6842,
+    "sets_passed": "3 of 4"
+   }
+  },
+  {
+   "id": "sst_range",
+   "name": "Seasonal temperature range",
+   "unit": "°C",
+   "source": "NASA MERRA-2",
+   "nasa": true,
+   "decision": "redundant",
+   "reason": "Exactly hottest month minus coldest month (VIF > 100 000).",
+   "trend": {
+    "pct_cells_significant": 0.0,
+    "basin_slope_per_decade": 0.1232,
+    "basin_p": 0.6726
+   },
+   "importance_share": {
+    "all_sources": null,
+    "nasa_only": null
+   },
+   "transfer": {
+    "kept_across_basin": null,
+    "kept_with_coordinates": null,
+    "sets_passed": null
+   }
+  },
+  {
+   "id": "mhw_months",
+   "name": "Unusually hot months",
+   "unit": "months/yr",
+   "source": "NASA MERRA-2",
+   "nasa": true,
+   "decision": "final",
+   "reason": "Statistics and mechanism agree; passes every test in every set.",
+   "trend": {
+    "pct_cells_significant": 91.8647,
+    "basin_slope_per_decade": 1.3517,
+    "basin_p": 0.0
+   },
+   "importance_share": {
+    "all_sources": 0.0844,
+    "nasa_only": 0.0984
+   },
+   "transfer": {
+    "kept_across_basin": 2.3584,
+    "kept_with_coordinates": 0.8833,
+    "sets_passed": "4 of 4"
+   }
+  },
+  {
+   "id": "dt_sea_air",
+   "name": "Sea-air temperature difference",
+   "unit": "°C",
+   "source": "NASA MERRA-2",
+   "nasa": true,
+   "decision": "dropped",
+   "reason": "Passes the transfer tests; weak trend (38 % of cells), low importance.",
+   "trend": {
+    "pct_cells_significant": 38.117,
+    "basin_slope_per_decade": -0.0551,
+    "basin_p": 0.0175
+   },
+   "importance_share": {
+    "all_sources": 0.0296,
+    "nasa_only": 0.0417
+   },
+   "transfer": {
+    "kept_across_basin": 2.1191,
+    "kept_with_coordinates": 0.9265,
+    "sets_passed": "2 of 2"
+   }
+  },
+  {
+   "id": "chl",
+   "name": "Chlorophyll-a (phytoplankton biomass)",
+   "unit": "mg/m³",
+   "source": "NASA MODIS-Aqua",
+   "nasa": true,
+   "decision": "final",
+   "reason": "Kept on mechanism (food supply) and as the only direct satellite measurement; mixed evidence.",
+   "trend": {
+    "pct_cells_significant": 35.5576,
+    "basin_slope_per_decade": -0.0079,
+    "basin_p": 0.0813
+   },
+   "importance_share": {
+    "all_sources": null,
+    "nasa_only": 0.0554
+   },
+   "transfer": {
+    "kept_across_basin": 2.0934,
+    "kept_with_coordinates": 1.285,
+    "sets_passed": "2 of 3"
+   }
+  },
+  {
+   "id": "nflh",
+   "name": "Phytoplankton fluorescence",
+   "unit": "mW/cm²/µm/sr",
+   "source": "NASA MODIS-Aqua",
+   "nasa": true,
+   "decision": "dropped",
+   "reason": "Geographic marker: all its importance disappears once position is known.",
+   "trend": {
+    "pct_cells_significant": 81.2614,
+    "basin_slope_per_decade": -0.008,
+    "basin_p": 0.0
+   },
+   "importance_share": {
+    "all_sources": 0.0386,
+    "nasa_only": 0.0604
+   },
+   "transfer": {
+    "kept_across_basin": 0.6315,
+    "kept_with_coordinates": -0.0121,
+    "sets_passed": "0 of 2"
+   }
+  },
+  {
+   "id": "aod",
+   "name": "Aerosol optical depth",
+   "unit": "",
+   "source": "NASA MERRA-2",
+   "nasa": true,
+   "decision": "dropped",
+   "reason": "Passes the transfer tests but does not change (9 % of cells) and has no direct mechanism.",
+   "trend": {
+    "pct_cells_significant": 9.1408,
+    "basin_slope_per_decade": -0.0092,
+    "basin_p": 0.0346
+   },
+   "importance_share": {
+    "all_sources": 0.0525,
+    "nasa_only": 0.0732
+   },
+   "transfer": {
+    "kept_across_basin": 0.6897,
+    "kept_with_coordinates": 0.9804,
+    "sets_passed": "2 of 2"
+   }
+  },
+  {
+   "id": "wind",
+   "name": "Surface wind speed",
+   "unit": "m/s",
+   "source": "NASA MERRA-2",
+   "nasa": true,
+   "decision": "dropped",
+   "reason": "Geographic marker: makes prediction worse across the basin, and has no trend.",
+   "trend": {
+    "pct_cells_significant": 0.0,
+    "basin_slope_per_decade": -0.1337,
+    "basin_p": 0.013
+   },
+   "importance_share": {
+    "all_sources": 0.0359,
+    "nasa_only": 0.0623
+   },
+   "transfer": {
+    "kept_across_basin": -0.1567,
+    "kept_with_coordinates": 0.5964,
+    "sets_passed": "0 of 2"
+   }
+  },
+  {
+   "id": "evap",
+   "name": "Evaporation",
+   "unit": "mm/day",
+   "source": "NASA MERRA-2",
+   "nasa": true,
+   "decision": "redundant",
+   "reason": "Same quantity as latent heat flux (r = +1.00).",
+   "trend": {
+    "pct_cells_significant": 0.8227,
+    "basin_slope_per_decade": 0.0365,
+    "basin_p": 0.2673
+   },
+   "importance_share": {
+    "all_sources": null,
+    "nasa_only": null
+   },
+   "transfer": {
+    "kept_across_basin": null,
+    "kept_with_coordinates": null,
+    "sets_passed": null
+   }
+  },
+  {
+   "id": "precip",
+   "name": "Precipitation",
+   "unit": "mm/day",
+   "source": "NASA MERRA-2",
+   "nasa": true,
+   "decision": "dropped",
+   "reason": "Passes the transfer tests; weak trend (20 % of cells) and atmospheric.",
+   "trend": {
+    "pct_cells_significant": 20.0183,
+    "basin_slope_per_decade": -0.144,
+    "basin_p": 0.0001
+   },
+   "importance_share": {
+    "all_sources": 0.0295,
+    "nasa_only": 0.0575
+   },
+   "transfer": {
+    "kept_across_basin": 1.276,
+    "kept_with_coordinates": 0.5294,
+    "sets_passed": "2 of 2"
+   }
+  },
+  {
+   "id": "lhf",
+   "name": "Latent heat flux",
+   "unit": "W/m²",
+   "source": "NASA MERRA-2",
+   "nasa": true,
+   "decision": "dropped",
+   "reason": "Geographic marker: does not transfer across the basin, and has no trend.",
+   "trend": {
+    "pct_cells_significant": 0.8227,
+    "basin_slope_per_decade": 1.0407,
+    "basin_p": 0.2673
+   },
+   "importance_share": {
+    "all_sources": 0.0929,
+    "nasa_only": 0.1434
+   },
+   "transfer": {
+    "kept_across_basin": 0.4169,
+    "kept_with_coordinates": 0.884,
+    "sets_passed": "0 of 2"
+   }
+  },
+  {
+   "id": "shf",
+   "name": "Sensible heat flux",
+   "unit": "W/m²",
+   "source": "NASA MERRA-2",
+   "nasa": true,
+   "decision": "dropped",
+   "reason": "Passes the transfer tests; weak trend (37 % of cells) and atmospheric.",
+   "trend": {
+    "pct_cells_significant": 36.5631,
+    "basin_slope_per_decade": -0.8959,
+    "basin_p": 0.0051
+   },
+   "importance_share": {
+    "all_sources": 0.0688,
+    "nasa_only": 0.068
+   },
+   "transfer": {
+    "kept_across_basin": 1.3828,
+    "kept_with_coordinates": 0.7989,
+    "sets_passed": "2 of 2"
+   }
+  },
+  {
+   "id": "q2m",
+   "name": "Specific humidity",
+   "unit": "g/kg",
+   "source": "NASA MERRA-2",
+   "nasa": true,
+   "decision": "redundant",
+   "reason": "Correlated with the coldest month (r = +0.89).",
+   "trend": {
+    "pct_cells_significant": 95.2468,
+    "basin_slope_per_decade": 0.2805,
+    "basin_p": 0.0001
+   },
+   "importance_share": {
+    "all_sources": null,
+    "nasa_only": null
+   },
+   "transfer": {
+    "kept_across_basin": null,
+    "kept_with_coordinates": null,
+    "sets_passed": null
+   }
+  },
+  {
+   "id": "dq_sea_air",
+   "name": "Sea-air humidity difference",
+   "unit": "g/kg",
+   "source": "NASA MERRA-2",
+   "nasa": true,
+   "decision": "dropped",
+   "reason": "Sea temperature in another form: 71 % of it is explained by the coldest and hottest month.",
+   "trend": {
+    "pct_cells_significant": 71.298,
+    "basin_slope_per_decade": 0.2057,
+    "basin_p": 0.0
+   },
+   "importance_share": {
+    "all_sources": null,
+    "nasa_only": 0.1148
+   },
+   "transfer": {
+    "kept_across_basin": 0.542,
+    "kept_with_coordinates": 0.5741,
+    "sets_passed": "1 of 2"
+   }
+  },
+  {
+   "id": "tqv",
+   "name": "Total column water vapour",
+   "unit": "kg/m²",
+   "source": "NASA MERRA-2",
+   "nasa": true,
+   "decision": "dropped",
+   "reason": "Passes the tests but has no mechanism on a submerged organism.",
+   "trend": {
+    "pct_cells_significant": 80.4388,
+    "basin_slope_per_decade": 0.613,
+    "basin_p": 0.0015
+   },
+   "importance_share": {
+    "all_sources": 0.0583,
+    "nasa_only": 0.0598
+   },
+   "transfer": {
+    "kept_across_basin": 1.6646,
+    "kept_with_coordinates": 0.5576,
+    "sets_passed": "2 of 2"
+   }
+  },
+  {
+   "id": "sss",
+   "name": "Sea surface salinity",
+   "unit": "PSU",
+   "source": "Copernicus Marine",
+   "nasa": false,
+   "decision": "not NASA",
+   "reason": "Copernicus model. Important in the all-sources study; strong west-east gradient.",
+   "trend": {
+    "pct_cells_significant": 22.2121,
+    "basin_slope_per_decade": 0.1101,
+    "basin_p": 0.0002
+   },
+   "importance_share": {
+    "all_sources": 0.1511,
+    "nasa_only": null
+   },
+   "transfer": {
+    "kept_across_basin": null,
+    "kept_with_coordinates": null,
+    "sets_passed": null
+   }
+  },
+  {
+   "id": "ssh",
+   "name": "Sea surface height",
+   "unit": "m",
+   "source": "Copernicus Marine",
+   "nasa": false,
+   "decision": "not NASA",
+   "reason": "Copernicus model.",
+   "trend": {
+    "pct_cells_significant": 82.3583,
+    "basin_slope_per_decade": 0.0333,
+    "basin_p": 0.0
+   },
+   "importance_share": {
+    "all_sources": 0.0721,
+    "nasa_only": null
+   },
+   "transfer": {
+    "kept_across_basin": null,
+    "kept_with_coordinates": null,
+    "sets_passed": null
+   }
+  },
+  {
+   "id": "ph",
+   "name": "pH",
+   "unit": "",
+   "source": "Copernicus Marine",
+   "nasa": false,
+   "decision": "not NASA",
+   "reason": "Copernicus model.",
+   "trend": {
+    "pct_cells_significant": 92.9616,
+    "basin_slope_per_decade": -0.0207,
+    "basin_p": 0.0
+   },
+   "importance_share": {
+    "all_sources": 0.0518,
+    "nasa_only": null
+   },
+   "transfer": {
+    "kept_across_basin": null,
+    "kept_with_coordinates": null,
+    "sets_passed": null
+   }
+  },
+  {
+   "id": "o2",
+   "name": "Dissolved oxygen",
+   "unit": "mmol/m³",
+   "source": "Copernicus Marine",
+   "nasa": false,
+   "decision": "not NASA",
+   "reason": "Copernicus model; also redundant with sea temperature (r = -0.88).",
+   "trend": {
+    "pct_cells_significant": 2.1024,
+    "basin_slope_per_decade": 0.1356,
+    "basin_p": 0.7116
+   },
+   "importance_share": {
+    "all_sources": null,
+    "nasa_only": null
+   },
+   "transfer": {
+    "kept_across_basin": null,
+    "kept_with_coordinates": null,
+    "sets_passed": null
+   }
+  },
+  {
+   "id": "no3",
+   "name": "Nitrate",
+   "unit": "mmol/m³",
+   "source": "Copernicus Marine",
+   "nasa": false,
+   "decision": "not NASA",
+   "reason": "Copernicus model.",
+   "trend": {
+    "pct_cells_significant": 43.1444,
+    "basin_slope_per_decade": -0.0367,
+    "basin_p": 0.0005
+   },
+   "importance_share": {
+    "all_sources": 0.0301,
+    "nasa_only": null
+   },
+   "transfer": {
+    "kept_across_basin": null,
+    "kept_with_coordinates": null,
+    "sets_passed": null
+   }
+  }
+ ]
+}
