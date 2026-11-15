@@ -10,7 +10,7 @@ var reduced = window.matchMedia && window.matchMedia("(prefers-reduced-motion: r
 var tip = $("tip");
 
 function loadSet(dir) { return Promise.all([getJSON(dir + "meta.json"), getJSON(dir + "sst.json")]); }
-loadSet("/api/trends/mediterraneo-1980/").catch(function () { return loadSet("data/"); }).then(function (r) {
+loadSet("/api/trends/mediterraneo-1982/").catch(function () { return loadSet("data/"); }).then(function (r) {
   var meta = r[0], d = r[1], years = meta.years, v = d.regional.mean, slope = d.regional.slope_per_decade;
   var p = d.regional.p_adj !== undefined ? d.regional.p_adj : d.regional.p, mean = v.reduce(function (a, b) { return a + b; }, 0) / v.length;
   var span = Math.max.apply(null, v.map(function (x) { return Math.abs(x - mean); })) || 1;
