@@ -7,8 +7,8 @@ Argumentation written with SI assistance. (see [Reproduce](#reproduce)).
 We started from 22 candidate environmental variables and kept four, all from NASA data:
 
 | Variable | id | Source | Basin trend per decade | Sea cells with a significant trend |
-|---|---|---|---|---|---|
-| Coldest-month sea temperature | `sst_winter_min` | NASA MERRA-2 | +0.52 °C | 85 % | 
+|---|---|---|---|---|
+| Coldest-month sea temperature | `sst_winter_min` | NASA MERRA-2 | +0.52 °C | 85 % |
 | Unusually hot months | `mhw_months` | NASA MERRA-2 | +1.35 months | 92 % |
 | Hottest-month sea temperature | `sst_summer_max` | NASA MERRA-2 | +0.68 °C | 81 % |
 | Chlorophyll-a | `chl` | NASA MODIS-Aqua | −0.008 mg/m³ (not significant) | 36 % |
