@@ -157,8 +157,17 @@ function get(name) {                            // the data if it is here; else 
   return v && !v.then ? v : null;
 }
 
+// The server keeps every species anyone asked for (so a second request is fast), but the list shows only
+// the default species and the ones this visitor searched in this tab.
+var mine = [];
+try { mine = JSON.parse(sessionStorage.getItem("sp-mine") || "[]"); } catch (e) { /* private mode: in memory only */ }
+function remember(name) {
+  if (mine.indexOf(name) >= 0) return; mine.push(name);
+  try { sessionStorage.setItem("sp-mine", JSON.stringify(mine)); } catch (e) { /* in memory only */ }
+}
 function loadList(select) {
-  return api("/habitat/especies").then(function (list) {
+  return api("/habitat/especies").then(function (all) {
+    var list = all.filter(function (sp) { return sp.principal || mine.indexOf(sp.nombre) >= 0; });
     state.list = list;
     var ul = $("sp-list"); ul.innerHTML = "";
     list.forEach(function (sp) {
@@ -179,7 +188,7 @@ function show(name) {
   status("Computing " + name + "… The first request for a species can take up to a minute (its sightings are downloaded from OBIS).");
   return load(name).then(function (d) {
     if (state.species !== name) return;
-    state.data = d; state.species = d.nombre;
+    state.data = d; state.species = d.nombre; if (!d.principal) remember(d.nombre);
     if (!d.idoneidad_chl) state.layer = "temp";
     var years = layerYears(d);
     if (!state.year || years.indexOf(state.year) < 0) state.year = years[years.length - 1];
