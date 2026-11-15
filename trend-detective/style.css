@@ -134,6 +134,7 @@ button:focus-visible,canvas:focus-visible{outline:2px solid var(--probe);outline
 #analysis .series-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 12px}
 #analysis .series-head h2,#analysis .series-head p{margin:0}
 #analysis .series-head .note{font-size:.78rem;color:var(--ink-2)}
+#analysis .forecast-band-swatch{display:inline-block;width:12px;height:12px;margin-right:6px;vertical-align:-2px;background:color-mix(in srgb,var(--probe) 24%,transparent);border:1px solid var(--probe);border-radius:2px}
 #analysis .mini canvas{height:130px}
 #analysis .note{font-size:.84rem;color:var(--ink-2);max-width:60ch}
 .tablewrap{overflow-x:auto}

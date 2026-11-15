@@ -445,7 +445,10 @@ function renderAnalysis() {
 
   var left = el("section"), seriesHead = el("div", "series-head");
   seriesHead.appendChild(el("h2", "", "Time series of the ticked variables"));
-  seriesHead.appendChild(el("p", "note", "Yellow band: 90% prediction interval (forecast uncertainty)."));
+  var bandNote = el("p", "note forecast-band-note"), swatch = el("span", "forecast-band-swatch");
+  swatch.setAttribute("aria-hidden", "true"); bandNote.appendChild(swatch);
+  bandNote.appendChild(document.createTextNode("90% prediction interval (forecast uncertainty)"));
+  seriesHead.appendChild(bandNote);
   left.appendChild(seriesHead);
   root.appendChild(left); shownSorted().forEach(function (id) { miniGraph(left, id, true); });
 
