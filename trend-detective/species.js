@@ -91,7 +91,7 @@ side.innerHTML =
   '<section><h2>What is this?</h2><p class="fact dim">Every sighting of the species in the world (OBIS, since 1980) is matched to the sea conditions of its place and year. ' +
   'That gives its environmental profile: the range of conditions where it lives. Habitat suitability (0 to 1) says how close each place of the Mediterranean, each year, ' +
   'is to that profile. It is a statistical match with four variables, not proof that the species is there.</p>' +
-  '<p class="fact dim side-links"><a href="index.html">Start page</a> · <a href="method.html">How we chose the four variables</a></p></section>';
+  '<p class="fact dim side-links"><a href="index.html">Start page</a> · <a href="method.html">How we chose the four variables</a> · <a href="https://github.com/martidalmases/cephalopods">Code on GitHub</a></p></section>';
 trendSide.parentNode.appendChild(side);
 
 var trendRow = $("row");
