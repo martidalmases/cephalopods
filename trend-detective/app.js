@@ -75,6 +75,16 @@ function load() {
   }).catch(function (e) {
     $("loading").textContent = "Could not load the data files. Serve this folder over HTTP (python3 -m http.server) and reload.";
     console.error(e);
+    // The default backend set may not exist (e.g. while a source has gaps): open the world set with sea
+    // temperature that has most years, else the first one, from the backend's list.
+    if (!new URLSearchParams(location.search).get("datos") && DATA_DIR !== "data/") {
+      return getJSON(API_ROOT + "/api/trends").then(function (sets) {
+        var sst = sets.filter(function (d) { return d.variables.indexOf("sst") >= 0; }).sort(function (a, b) { return a.desde - b.desde; });
+        var pick = sst.filter(function (d) { return d.id.indexOf("mundo") === 0; })[0] || sst[0] || sets[0];
+        if (!pick) throw e;
+        var q = new URLSearchParams(location.search); q.set("datos", pick.id); location.search = q.toString();
+      }).catch(function () { $("loading").textContent = "Could not load the data. Please try again later."; });
+    }
   });
 }
 
@@ -675,10 +685,26 @@ function setMode(m) {
   if (m === "time") { revealYear(); view.offTime = state.offset; }
   render();
 }
+// Two button groups: Visualisation (stacks, trend map) and Analysis (correlations, change index, two
+// variables). The change index and two-variable maps are drawn like the visualisation maps (state.screen
+// "viz" with mode "index" | "pair"); only "Correlations" uses the analysis panel (state.screen "analysis").
+var tab = "viz", atab = "corr";
 function setScreen(s) {
-  state.screen = s; $("row").classList.toggle("analysis", s === "analysis"); $("modes").hidden = s === "analysis";
-  document.querySelectorAll("#screens button").forEach(function (b) { b.setAttribute("aria-pressed", String(b.dataset.screen === s)); });
-  render();
+  tab = s;
+  if (s === "analysis") { setAnalysis(atab); return; }
+  state.screen = "viz"; if (state.mode === "index" || state.mode === "pair") { setScreenChrome(); setMode("time"); return; }
+  setScreenChrome(); render();
+}
+function setAnalysis(a) {
+  atab = a; tab = "analysis";
+  if (a === "corr") { state.screen = "analysis"; setScreenChrome(); render(); }
+  else { state.screen = "viz"; setScreenChrome(); setMode(a); }
+}
+function setScreenChrome() {
+  $("row").classList.toggle("analysis", state.screen === "analysis");
+  $("modes").hidden = tab === "analysis"; $("amodes").hidden = tab !== "analysis";
+  document.querySelectorAll("#screens button").forEach(function (b) { b.setAttribute("aria-pressed", String(b.dataset.screen === tab)); });
+  document.querySelectorAll("#amodes button").forEach(function (b) { b.setAttribute("aria-pressed", String(b.dataset.a === atab)); });
 }
 function openFocus(slot) {
   var L = slot.layer; state.focus = L; view.focusPos = slot.pos; view.focusT = 0; resetZoom();
@@ -744,6 +770,11 @@ canvas.addEventListener("pointerup", function (e) {
     if (cells.length) setSel({ type: "area", i0: i0, i1: i1, j0: j0, j1: j1, cells: cells }); else drawMain();
     return;
   }
+  if (state.focus && view.focusT >= 1 && geom && geom.flat) {    // an opened layer: a click outside the map goes back to the stack
+    var q = pos(e), sc = geom.flat[0], x0 = geom.flat[4], y0 = geom.flat[5], w = canvas.clientWidth, hh = canvas.clientHeight;
+    if (q[0] < Math.max(40, x0) || q[0] > Math.min(w - 40, x0 + nx * sc) || q[1] < Math.max(40, y0) || q[1] > Math.min(hh - 40, y0 + ny * sc)) closeFocus();
+    return;
+  }
   if (isFlat() || view.focusT > 0) return;
   var p = pos(e), h = hit(p[0], p[1]); if (!h) return;
   if (h.slot.w > 0.5) openFocus(h.slot); else step(h.slot.pos < 0 ? -1 : 1);
@@ -767,6 +798,7 @@ $("back").addEventListener("click", closeFocus);
 $("clear").addEventListener("click", function () { setSel({ type: "region" }); });
 document.querySelectorAll("#modes button").forEach(function (b) { b.addEventListener("click", function () { setMode(b.dataset.mode); }); });
 document.querySelectorAll("#screens button").forEach(function (b) { b.addEventListener("click", function () { setScreen(b.dataset.screen); }); });
+document.querySelectorAll("#amodes button").forEach(function (b) { b.addEventListener("click", function () { setAnalysis(b.dataset.a); }); });
 $("panel-toggle").addEventListener("click", function () { setPanel(!state.panelOpen); render(); });
 var panelRaf = 0;
 if (window.ResizeObserver) {

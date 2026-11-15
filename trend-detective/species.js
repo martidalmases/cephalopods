@@ -128,7 +128,8 @@ function setPage(p) {
   document.documentElement.dataset.portal = sp ? "species" : "trends";      // species.css: background tint of the page
   pages.querySelectorAll("button").forEach(function (b) { b.setAttribute("aria-pressed", String(b.dataset.page === p)); });
   trendRow.hidden = sp; trendSide.hidden = sp; $("screens").hidden = sp;
-  $("modes").hidden = sp || document.querySelector('#screens [data-screen="analysis"]').getAttribute("aria-pressed") === "true";
+  var analysis = document.querySelector('#screens [data-screen="analysis"]').getAttribute("aria-pressed") === "true";
+  $("modes").hidden = sp || analysis; if ($("amodes")) $("amodes").hidden = sp || !analysis;
   spScreens.hidden = !sp; spModes.hidden = !sp || state.screen === "analysis";
   row.hidden = !sp; side.hidden = !sp;
   if (history.replaceState) history.replaceState(null, "", sp ? "#species" : location.pathname + location.search);
@@ -520,6 +521,11 @@ function drawFlat(g, w, h, d, kind) {    // one map with degree labels
 
 canvas.addEventListener("click", function (ev) {     // stack: open the layer under the pointer
   var r = canvas.getBoundingClientRect(), px = ev.clientX - r.left, py = ev.clientY - r.top, det = ISO.ux * ISO.vy - ISO.vx * ISO.uy, i, H, a, b;
+  if (flatKind() === "suit" && geom && state.data) {  // an opened layer: a click outside the map goes back to the stack
+    var R = state.data.region;
+    if (px < geom.ox || px > geom.ox + R.nx * geom.s || py < geom.oy || py > geom.oy + R.ny * geom.s) { state.focus = false; refresh(); }
+    return;
+  }
   for (i = 0; i < hits.length; i++) {                // top layer first: it is the one in front
     H = hits[i]; if (!H) continue;
     a = ((px - H.ox) * ISO.vy - ISO.vx * (py - H.top)) / det; b = (ISO.ux * (py - H.top) - ISO.uy * (px - H.ox)) / det;

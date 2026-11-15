@@ -44,8 +44,11 @@
         <button type="button" data-mode="time" aria-pressed="true">Stack by time</button>
         <button type="button" data-mode="vars" aria-pressed="false">Stack by variable</button>
         <button type="button" data-mode="trend" aria-pressed="false">Trend map</button>
-        <button type="button" data-mode="index" aria-pressed="false" title="How much each place has changed, all the chosen variables together">Change index</button>
-        <button type="button" data-mode="pair" aria-pressed="false" title="Two trends on one map">Two variables</button>
+      </span>
+      <span class="seg" id="amodes" role="group" aria-label="Analysis options" hidden>
+        <button type="button" data-a="corr" aria-pressed="true" title="Time series, trends and correlations of the ticked variables">Correlations</button>
+        <button type="button" data-a="index" aria-pressed="false" title="How much each place has changed, all the chosen variables together">Change index</button>
+        <button type="button" data-a="pair" aria-pressed="false" title="Two trends on one map">Two variables</button>
       </span>
     </div>
 
@@ -97,7 +100,7 @@
 </div>
 <div id="tip" role="status"></div>
 <script src="stats.js?v=1"></script>
-<script src="app.js?v=9"></script>
-<script src="species.js?v=16"></script>
+<script src="app.js?v=11"></script>
+<script src="species.js?v=18"></script>
 </body>
 </html>
