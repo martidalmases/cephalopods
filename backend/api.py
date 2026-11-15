@@ -17,6 +17,11 @@ Endpoints:
     GET /api/especies/{nombre}               Nicho y resumen anual; si no está calculada, se calcula ahora.
     GET /api/especies/{nombre}/mapa?anio=    Idoneidad por celda en un año y avistamientos, para un mapa.
 
+    GET /api/habitat                         Estado del almacén de hábitat (0,25°, cuatro variables de especies).
+    GET /api/habitat/especies                Especies con el hábitat ya calculado.
+    GET /api/habitat/especies/{nombre}       Todo lo de una especie en un JSON: perfil, idoneidad del Mediterráneo
+                                             por celda y año, indicadores y tendencias. Se calcula si hace falta.
+
     GET /api/trends                          Conjuntos para la pantalla Trends (región + años).
     GET /api/trends/{conjunto}/{fichero}     meta.json y <variable>.json en el formato de la web.
 
@@ -40,7 +45,9 @@ from fastapi.staticfiles import StaticFiles
 
 import almacen
 import especies
+import especies_habitat
 import exportar_trends
+import habitat
 from datos_mediterraneo import VARIABLES, media_serie
 from recolector import FUENTES, VARIABLES_RECOLECTADAS
 
@@ -221,6 +228,35 @@ def especie_mapa(nombre: str, anio: int | None = Query(None, description="por de
                         int(limitante[i, j])] for i, j in zip(ii, jj)],
             "avistamientos": [[float(almacen.LATS[i]), float(almacen.LONS[j]), int(total[i, j]), int(del_anio[i, j])]
                               for i, j in zip(ri, rj)]}
+
+
+# --------------------------------------------------------------------------- hábitat (portal de especies de la web)
+
+@app.get("/api/habitat")
+def habitat_estado():
+    meta = habitat.leer_meta()
+    if meta is None:
+        raise HTTPException(503, "Todavía no hay almacén de hábitat: ejecuta `python habitat.py`")
+    return {**meta, "variables": habitat.VARIABLES, "metodo": especies_habitat.tendencias.METODO}
+
+
+@app.get("/api/habitat/especies")
+def habitat_lista():
+    return especies_habitat.listar()
+
+
+@app.get("/api/habitat/especies/{nombre}")
+def habitat_especie(nombre: str):
+    """El JSON completo de la especie (lo escribe especies_habitat.py). La primera vez se calcula (OBIS + cálculo)."""
+    try:
+        ruta = especies_habitat.asegurar(_nombre_especie(nombre))
+    except (especies_habitat.ErrorEspecie, especies.ErrorEspecie) as e:
+        raise HTTPException(404, str(e))
+    except habitat.ErrorHabitat as e:
+        raise HTTPException(503, str(e))
+    except requests.RequestException as e:
+        raise HTTPException(502, f"OBIS no responde: {e}")
+    return FileResponse(ruta, media_type="application/json", headers={"Cache-Control": "public, max-age=600"})
 
 
 # --------------------------------------------------------------------------- trends (web)

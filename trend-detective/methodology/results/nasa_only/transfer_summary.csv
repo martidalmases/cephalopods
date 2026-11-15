@@ -1,0 +1,14 @@
+variable,time,space,coords,kept_space,kept_coords,habitat_model,pct_cells_trend,change_driver
+dq_sea_air,0.03,0.0163,0.0172,0.542,0.5741,True,71.298,True
+lhf,0.0294,0.0123,0.026,0.4169,0.884,False,0.8227,False
+sst_winter_min,0.0263,0.0297,0.0395,1.131,1.5023,True,85.3748,True
+shf,0.015,0.0208,0.012,1.3828,0.7989,True,36.5631,False
+aod,0.0135,0.0093,0.0132,0.6897,0.9804,True,9.1408,False
+mhw_months,0.0128,0.0302,0.0113,2.3584,0.8833,True,91.8647,True
+wind,0.0123,-0.0019,0.0074,-0.1567,0.5964,False,0.0,False
+nflh,0.0117,0.0074,-0.0001,0.6315,-0.0121,False,81.2614,False
+tqv,0.0113,0.0187,0.0063,1.6646,0.5576,True,80.4388,True
+precip,0.0087,0.0111,0.0046,1.276,0.5294,True,20.0183,False
+chl,0.0077,0.0162,0.0099,2.0934,1.285,True,35.5576,False
+dt_sea_air,0.0067,0.0143,0.0062,2.1191,0.9265,True,38.117,False
+sst_summer_max,0.0039,0.0093,0.0027,2.3652,0.6842,True,80.8044,True

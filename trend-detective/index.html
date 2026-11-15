@@ -3,91 +3,116 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Trend Detective Concept</title>
+<title>Trend Detective · Is the Mediterranean turning tropical?</title>
+<meta name="description" content="How the Mediterranean Sea has changed since 1980 in NASA data, and what it means for the species that live in it. NASA Space Apps Challenge 2026, Barcelona.">
+<script>
+  // Old links pointed at this address for the explorer (#species, ?datos=...): send them on.
+  if (location.hash === "#species" || /[?&](datos|especie)=/.test(location.search)) location.replace("explore.html" + location.search + location.hash);
+</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css">
-<link rel="stylesheet" href="species.css?v=9">
+<link rel="stylesheet" href="style.css?v=4">
+<link rel="stylesheet" href="site.css?v=1">
 </head>
-<body>
-<div class="app" id="app">
+<body class="doc">
+<header class="top">
+  <a class="logo" href="index.html"><img class="logo-img" src="logo.png" alt="Team logo: a nautilus"><span class="logo-name">Trend Detective</span></a>
+  <nav aria-label="Sections">
+    <a href="explore.html">Variables</a>
+    <a href="explore.html#species">Species</a>
+    <a href="method.html">Method</a>
+  </nav>
+</header>
 
-  <aside class="side" aria-label="Data">
-    <div class="logo"><img class="logo-img" src="logo.png" alt="Team logo: a nautilus"><span class="logo-name">Trend Detective</span></div>
-    <div class="side-body">
-      <p class="flag" id="synthetic-flag" hidden>Synthetic data. Not NASA measurements.</p>
-      <section>
-        <h2>Region</h2>
-        <p class="fact" id="region-name">&nbsp;</p>
-        <p class="fact dim" id="period">&nbsp;</p>
-      </section>
-      <section>
-        <h2>Data to visualise</h2>
-        <p class="fact dim" id="var-hint">&nbsp;</p>
-        <ul class="varlist" id="varlist"></ul>
-      </section>
-      <section>
-        <h2>What is this?</h2>
-        <div id="definitions" class="definitions"></div>
-      </section>
+<main class="wrap">
+  <section class="hero">
+    <div>
+      <p class="kicker rise">NASA Space Apps Challenge 2026 · Barcelona · Be an Earth System Trend Detective</p>
+      <h1 class="rise d1">Is the Mediterranean turning tropical?</h1>
+      <p class="lead rise d2">We follow the sea since 1980 in NASA data, test which changes are real trends and not noise, and map what they mean for the species that live in it.</p>
+      <p class="project rise d3">Mediterrània Tropical</p>
+      <div class="cta rise d4">
+        <a class="btn solid" href="explore.html#species">Pick a species</a>
+        <a class="btn" href="explore.html">See the trends</a>
+      </div>
     </div>
-  </aside>
+    <figure class="stripes rise d2">
+      <h2 id="stripes-title">Mediterranean surface temperature, year by year</h2>
+      <canvas id="stripes" aria-label="One stripe per year, coloured by how warm the Mediterranean surface was"></canvas>
+      <figcaption><span id="stripes-from">&nbsp;</span><span>each stripe is one year: blue colder than average, red warmer</span><span id="stripes-to">&nbsp;</span></figcaption>
+      <p class="read" id="stripes-read">&nbsp;</p>
+    </figure>
+  </section>
 
-  <div class="work">
-    <div class="options">
-      <span class="seg" id="screens" role="group" aria-label="Screen">
-        <button type="button" data-screen="viz" aria-pressed="true">Visualisation</button>
-        <button type="button" data-screen="analysis" aria-pressed="false">Analysis</button>
-      </span>
-      <span class="seg" id="modes" role="group" aria-label="Visualisation options">
-        <button type="button" data-mode="time" aria-pressed="true">Stack by time</button>
-        <button type="button" data-mode="vars" aria-pressed="false">Stack by variable</button>
-        <button type="button" data-mode="trend" aria-pressed="false">Trend map</button>
-      </span>
+  <section class="facts" aria-label="Key numbers">
+    <div class="fact-tile rise d1"><b id="fact-trend">–</b><span id="fact-trend-text">sea surface temperature</span></div>
+    <div class="fact-tile rise d2"><b id="fact-vars">4</b><span id="fact-vars-text">variables chosen for the species, all from NASA data</span></div>
+    <div class="fact-tile rise d3"><b id="fact-species">–</b><span id="fact-species-text">species mapped so far; ask for any other</span></div>
+  </section>
+
+  <div class="section-head"><h2>Three ways in</h2><p class="fact dim">Each one answers a different question.</p></div>
+  <section class="portals">
+    <a class="portal" href="explore.html">
+      <span class="n">01 · VARIABLES</span>
+      <svg viewBox="0 0 260 96" aria-hidden="true">
+        <g fill="none" stroke="var(--ink)" stroke-width="1.2">
+          <path class="layer l3" d="M48 74 L176 74 L214 54 L86 54 Z" fill="var(--neg)" fill-opacity=".55"/>
+          <path class="layer l2" d="M48 56 L176 56 L214 36 L86 36 Z" fill="var(--mid)"/>
+          <path class="layer l1" d="M48 38 L176 38 L214 18 L86 18 Z" fill="var(--pos)" fill-opacity=".6"/>
+        </g>
+      </svg>
+      <h3>What is changing in the sea?</h3>
+      <p>Every variable on its own, for the world ocean and the Mediterranean: maps stacked by year, the trend of each place and whether it is significant.</p>
+      <ul><li>temperature</li><li>marine heatwaves</li><li>chlorophyll</li><li>salinity</li><li>wind</li><li>heat fluxes</li></ul>
+      <span class="go">Open the variables</span>
+    </a>
+    <a class="portal species" href="explore.html#species">
+      <span class="n">02 · SPECIES</span>
+      <svg viewBox="0 0 260 96" aria-hidden="true">
+        <path d="M18 60 C40 30 74 44 96 34 C128 20 150 34 176 30 C206 26 232 40 244 58 C228 78 196 70 170 76 C140 84 112 70 84 76 C58 82 34 78 18 60 Z" fill="var(--neg)" fill-opacity=".28" stroke="var(--ink)" stroke-width="1.2"/>
+        <path d="M70 58 C96 44 132 50 160 46 C186 44 206 50 216 58 C196 68 168 62 146 66 C120 70 92 66 70 58 Z" fill="var(--neg)" fill-opacity=".6"/>
+        <g fill="var(--probe)"><circle class="pulse" cx="104" cy="56" r="4"/><circle cx="150" cy="54" r="3"/><circle cx="188" cy="58" r="3"/></g>
+        <path d="M24 40 L236 40" stroke="var(--probe)" stroke-width="1.2" stroke-dasharray="5 4"/>
+      </svg>
+      <h3>Where can a species live?</h3>
+      <p>Choose any marine species. We read where it has been seen in the world, work out the conditions it lives in, and map where the Mediterranean suits it, year by year.</p>
+      <ul><li>suitable area</li><li>poleward limit</li><li>thermal tolerance</li></ul>
+      <span class="go">Open the species</span>
+    </a>
+    <a class="portal" href="method.html">
+      <span class="n">03 · METHOD</span>
+      <svg viewBox="0 0 260 96" aria-hidden="true">
+        <g fill="var(--ink-2)">
+          <g class="drop"><rect x="20" y="14" width="10" height="10" rx="2"/><rect x="36" y="14" width="10" height="10" rx="2"/><rect x="52" y="14" width="10" height="10" rx="2"/><rect x="68" y="14" width="10" height="10" rx="2"/><rect x="84" y="14" width="10" height="10" rx="2"/><rect x="100" y="14" width="10" height="10" rx="2"/>
+          <rect x="20" y="30" width="10" height="10" rx="2"/><rect x="36" y="30" width="10" height="10" rx="2"/><rect x="52" y="30" width="10" height="10" rx="2"/><rect x="68" y="30" width="10" height="10" rx="2"/><rect x="84" y="30" width="10" height="10" rx="2"/><rect x="100" y="30" width="10" height="10" rx="2"/>
+          <rect x="20" y="46" width="10" height="10" rx="2"/><rect x="36" y="46" width="10" height="10" rx="2"/><rect x="52" y="46" width="10" height="10" rx="2"/><rect x="68" y="46" width="10" height="10" rx="2"/><rect x="84" y="46" width="10" height="10" rx="2"/><rect x="100" y="46" width="10" height="10" rx="2"/></g>
+        </g>
+        <path d="M124 48 L156 48" stroke="var(--ink)" stroke-width="1.2" fill="none"/><path d="M150 42 L158 48 L150 54" stroke="var(--ink)" stroke-width="1.2" fill="none"/>
+        <g><rect x="172" y="26" width="18" height="18" rx="3" fill="var(--neg)"/><rect x="196" y="26" width="18" height="18" rx="3" fill="var(--pos)"/><rect x="172" y="50" width="18" height="18" rx="3" fill="var(--probe)"/><rect x="196" y="50" width="18" height="18" rx="3" fill="#3a9e6e"/></g>
+      </svg>
+      <h3>Why these four variables?</h3>
+      <p>We started from 22 candidates. The article walks through the tests that left four, what is solid and what is our judgement, with every figure reproducible.</p>
+      <ul><li>trends</li><li>redundancy</li><li>species models</li><li>transfer tests</li></ul>
+      <span class="go">Read the method</span>
+    </a>
+  </section>
+
+  <section class="team" id="team">
+    <div class="team-photo"><img class="mark" src="logo.png" alt=""><img class="photo" id="team-photo" alt="The team" hidden></div>
+    <div>
+      <p class="kicker">The team</p>
+      <h2 id="team-name">Who we are</h2>
+      <p id="team-intro">&nbsp;</p>
+      <ul class="members" id="team-members" hidden></ul>
     </div>
+  </section>
+</main>
 
-    <div class="row" id="row">
-      <main class="main">
-        <div class="legend" id="legend"></div>
-        <div class="stage" id="stage">
-          <canvas id="view" tabindex="0" aria-label="Main visualisation"></canvas>
-          <p class="loading" id="loading">Loading data…</p>
-        </div>
-        <div class="stackbar" id="stackbar">
-          <button type="button" class="ghost" id="back" hidden>&larr; Back to stack</button>
-          <button type="button" class="round" id="up" aria-label="Previous layer">&#9650;</button>
-          <span id="scroll-pos"></span>
-          <button type="button" class="round" id="down" aria-label="Next layer">&#9660;</button>
-          <span class="fact dim" id="stack-hint"></span>
-        </div>
-      </main>
-
-      <aside class="panel" id="panel" aria-label="Graphs">
-        <div id="viz-panel">
-          <div class="panel-head">
-            <h2 id="panel-title">&nbsp;</h2>
-            <button type="button" class="ghost small" id="clear" hidden>Clear selection</button>
-          </div>
-          <p class="fact dim" id="panel-where">&nbsp;</p>
-          <div id="single">
-            <canvas id="chart" aria-label="Time series with fitted trend"></canvas>
-            <p class="verdict" id="verdict">&nbsp;</p>
-          </div>
-          <div id="multi" hidden></div>
-          <div id="allvars-wrap">
-            <h2>Every variable, same selection</h2>
-            <table class="allvars"><thead><tr><th>Variable</th><th>Trend</th><th>Signif.</th></tr></thead><tbody id="allvars"></tbody></table>
-          </div>
-        </div>
-        <div id="analysis" hidden></div>
-      </aside>
-
-      <button type="button" id="panel-toggle" aria-expanded="true" aria-controls="panel" aria-label="Hide graph panel" title="Hide graph panel">&rsaquo;</button>
-    </div>
-  </div>
-</div>
+<footer class="foot"><div class="wrap">
+  Data: NASA MERRA-2 (GES DISC), NASA MODIS-Aqua (served by NOAA CoastWatch ERDDAP), NASA SMAP (PO.DAAC); species sightings from <a href="https://obis.org/">OBIS</a>.
+  Trends: Sen's slope, modified Mann-Kendall test, FDR adjustment. Code written with AI assistance.
+</div></footer>
 <div id="tip" role="status"></div>
-<script src="app.js?v=3"></script>
-<script src="species.js?v=9"></script>
+<script src="home.js?v=1"></script>
 </body>
 </html>

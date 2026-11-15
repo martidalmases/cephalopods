@@ -114,6 +114,45 @@ const mapa  = await (await fetch("/api/especies/Thunnus thynnus/mapa?anio=2020")
   records since 2020).
 - **SMAP salinity is too low in the Mediterranean** (about 35.7 PSU instead of about 37.5).
 
+## Habitat of a species with the four chosen variables (species portal)
+
+Two new modules, plus the shared statistics:
+
+| File | Role |
+|---|---|
+| `tendencias.py` | Sen's slope, modified Mann-Kendall (Hamed-Rao) and Benjamini-Hochberg FDR. Used by everything below and by `exportar_trends.py`. Test: `python pruebas/prueba_tendencias.py`. |
+| `habitat.py` | Habitat store: the four variables, **yearly, on a global 0.25° grid** (`datos/habitat/`, plain numpy files). Coldest month, hottest month and unusually hot months come from the monthly MERRA-2 TS on its own grid (kept in `datos/habitat/ts/`); chlorophyll from MODIS-Aqua 4 km. |
+| `especies_habitat.py` | On request: OBIS sightings worldwide → presences per 0.25° cell and year → profile (percentiles of each variable at the presences, matched by year) → habitat suitability of every Mediterranean cell and year → indicators and their trends → one JSON per species. |
+| `regiones.py` | The Mediterranean box and mask shared by the maps. |
+
+Read before relying on the numbers:
+- **Temperature at 0.25° has no more detail than MERRA-2** (0.5° × 0.625°): each cell takes the value of the
+  MERRA-2 sea cell that contains it. Chlorophyll is real 0.25°.
+- **Unusually hot months** are months above the 90th percentile of that calendar month over all complete years
+  (as in the variable-selection study), so adding a year changes past values slightly; `BASE_CALIDOS` in
+  `habitat.py` fixes a reference period instead. In the suitability index they only count against a place
+  when there are more than the species has been seen with (`LADO` in `especies_habitat.py`).
+- The yearly index (1980 to today) uses the three temperature variables; chlorophyll starts in 2003 and is a
+  second layer (`idoneidad_chl`).
+- Indicators: suitable area, centre and poleward limit of the suitable habitat (from the map, yearly);
+  observed poleward limit per hemisphere and thermal tolerance (from the sightings, in periods of 1, 3 or 5
+  years with at least 30 presences each, all cut to the same number of presences). The p-values of all
+  indicators of a species are adjusted together; so are those of the cells of the trend map.
+
+```bash
+python habitat.py                       # first time: ~560 requests to MERRA-2 and 276 to ERDDAP; ~1.3 GB on disk
+python habitat.py --sin-clorofila       # temperature only
+python especies_habitat.py              # the main species
+python especies_habitat.py "Thalassoma pavo"
+```
+The harvester runs both at the end of each run. API: `/api/habitat`, `/api/habitat/especies`,
+`/api/habitat/especies/{name}`. `exportar_trends.py` adds the sets `habitat-1980` and `habitat-2003`
+(Mediterranean, 0.25°) and the three temperature variables to the 1° and 2° sets.
+
+New in the monthly store: `humedad_especifica` and `vapor_agua` (MERRA-2 QLML and TQV). The first harvester
+run after this change asks MERRA-2 again for every month since 1980 (about 1 700 requests), because the two
+new variables are empty.
+
 ## Trends screen (real data)
 
 `exportar_trends.py` converts `ambiente.zarr` to the format of the Trend Detective website
@@ -188,7 +227,7 @@ sudo nginx -t && sudo systemctl reload nginx
 ```
 
 **Frontend:** copy `../trend-detective/` to `/var/www/trend-detective`. When you change `app.js`,
-`species.js` or `species.css`, raise the `?v=` number of their links in `index.html` so browsers do
+`species.js` or `species.css`, raise the `?v=` number of their links in `explore.html` so browsers do
 not keep the old version.
 
 **Token:** the Earthdata token expires after 60 days. Renew it in `/etc/cephalopods.env`; the
@@ -313,6 +352,45 @@ const mapa  = await (await fetch("/api/especies/Thunnus thynnus/mapa?anio=2020")
   (en OBIS hay muchos más registros desde 2020).
 - **La salinidad de SMAP sale baja en el Mediterráneo** (unos 35,7 PSU en lugar de unos 37,5).
 
+## Hábitat de una especie con las cuatro variables elegidas (portal de especies)
+
+Dos módulos nuevos, más la estadística común:
+
+| Fichero | Función |
+|---|---|
+| `tendencias.py` | Pendiente de Sen, Mann-Kendall modificado (Hamed-Rao) y FDR de Benjamini-Hochberg. Lo usan todos los de abajo y `exportar_trends.py`. Prueba: `python pruebas/prueba_tendencias.py`. |
+| `habitat.py` | Almacén de hábitat: las cuatro variables, **anuales, en una rejilla mundial de 0,25°** (`datos/habitat/`, ficheros numpy). El mes más frío, el más cálido y los meses anómalamente cálidos salen del TS mensual de MERRA-2 en su propia rejilla (guardado en `datos/habitat/ts/`); la clorofila, de MODIS-Aqua 4 km. |
+| `especies_habitat.py` | A demanda: avistamientos de OBIS de todo el mundo → presencias por celda de 0,25° y año → perfil (percentiles de cada variable en las presencias, año a año) → idoneidad de cada celda del Mediterráneo y año → indicadores y sus tendencias → un JSON por especie. |
+| `regiones.py` | Caja y máscara del Mediterráneo, comunes a todos los mapas. |
+
+Antes de fiarse de los números:
+- **La temperatura a 0,25° no tiene más detalle que MERRA-2** (0,5° × 0,625°): cada celda toma el valor de la
+  celda de mar de MERRA-2 que la contiene. La clorofila sí es de 0,25° reales.
+- **Meses anómalamente cálidos**: meses por encima del percentil 90 de ese mes del calendario sobre todos los
+  años completos (como en el estudio de selección de variables), así que al añadir un año los valores pasados
+  cambian un poco; `BASE_CALIDOS` en `habitat.py` fija un periodo de referencia. En el índice de idoneidad sólo
+  cuentan en contra cuando hay más de los que la especie ha soportado (`LADO` en `especies_habitat.py`).
+- El índice anual (1980 a hoy) usa las tres variables de temperatura; la clorofila empieza en 2003 y es una
+  segunda capa (`idoneidad_chl`).
+- Indicadores: superficie idónea, centro y límite hacia el polo del hábitat idóneo (del mapa, anuales); límite
+  hacia el polo observado por hemisferio y tolerancia térmica (de los avistamientos, en periodos de 1, 3 o 5
+  años con al menos 30 presencias, todos reducidos al mismo número de presencias). Las p de todos los
+  indicadores de una especie se ajustan juntas; también las de las celdas del mapa de tendencia.
+
+```bash
+python habitat.py                       # primera vez: ~560 peticiones a MERRA-2 y 276 a ERDDAP; ~1,3 GB en disco
+python habitat.py --sin-clorofila       # sólo temperatura
+python especies_habitat.py              # las especies principales
+python especies_habitat.py "Thalassoma pavo"
+```
+El recolector ejecuta los dos al final de cada pasada. API: `/api/habitat`, `/api/habitat/especies`,
+`/api/habitat/especies/{nombre}`. `exportar_trends.py` añade los conjuntos `habitat-1980` y `habitat-2003`
+(Mediterráneo, 0,25°) y las tres variables de temperatura a los conjuntos de 1° y 2°.
+
+Nuevo en el almacén mensual: `humedad_especifica` y `vapor_agua` (QLML y TQV de MERRA-2). La primera pasada del
+recolector tras este cambio vuelve a pedir a MERRA-2 todos los meses desde 1980 (unas 1 700 peticiones), porque
+las dos variables nuevas están vacías.
+
 ## Pantalla Trends (datos reales)
 
 `exportar_trends.py` convierte `ambiente.zarr` al formato de la web Trend Detective
@@ -386,7 +464,7 @@ sudo nginx -t && sudo systemctl reload nginx
 ```
 
 **Frontend:** copia `../trend-detective/` a `/var/www/trend-detective`. Al cambiar `app.js`,
-`species.js` o `species.css`, sube el número `?v=` de sus enlaces en `index.html` para que los
+`species.js` o `species.css`, sube el número `?v=` de sus enlaces en `explore.html` para que los
 navegadores no usen la versión antigua.
 
 **Token:** el de Earthdata caduca a los 60 días. Renuévalo en `/etc/cephalopods.env`; el recolector
