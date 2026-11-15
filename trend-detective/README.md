@@ -80,7 +80,13 @@ The maps slide away and the graph panel takes the space. For the current selecti
   range use the endpoint colours.
 - Variable stack and trend map: one fixed range per variable, because the units differ.
 
-### Where the statistics are computed
+### Forecasts
+
+The Analysis screen requests a five-year forecast for each ticked time series from the Python API. It uses Darts damped additive exponential smoothing, without seasonality, and displays the median forecast with a 90% simulation interval. Interior gaps of up to two years are linearly interpolated; longer gaps or fewer than eight observed years produce no forecast. Predictions are extrapolations from the selected series, not causal projections.
+
+For a local preview with forecasts, run the backend on port 8001 and the static site on port 8000, then open http://localhost:8000/?datos=ficheros&api=http://localhost:8001. Install the backend dependencies from backend/requirements.txt first. If the backend is not connected, the charts still load but forecasts are unavailable.
+
+## Where the statistics are computed
 
 - Per-cell and whole-region trends come from the Python pipeline (in the JSON files).
 - Area selections are averaged (area-weighted) and fitted **in the browser** with the same method:
