@@ -46,12 +46,9 @@ import sys
 import threading
 import warnings
 from collections import defaultdict
-from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from datetime import date, datetime, timedelta, timezone
-from functools import lru_cache
 from pathlib import Path
-from urllib.parse import quote
 
 import numpy as np
 import requests
@@ -68,9 +65,7 @@ ANIO_MINIMO = 1980          # mismo inicio que los datos ambientales
 MESES_MINIMOS = 9           # meses con dato para que un año cuente en una celda
 COBERTURA_LARGA = 0.8       # fracción de años con dato para que una variable entre en el índice
 DIAS_REFRESCO_OBIS = 90     # los avistamientos se vuelven a descargar pasado este tiempo
-R = almacen.FINA                            # rejilla de las especies y de las medias anuales (0,5°)
-DISTANCIA_MAX_KM = R.paso * 111.2          # avistamiento en tierra: celda de mar vecina a menos de esto
-BASE_MHW = (1982, 2011)                     # periodo de referencia de las olas de calor marinas
+DISTANCIA_MAX_KM = almacen.PASO * 111.2   # avistamiento en tierra: celda de mar vecina a menos de esto
 UMBRAL_IDONEO = 0.2         # idoneidad a partir de la cual una celda se considera favorable
 PERCENTILES = [5, 25, 50, 75, 95]
 FRANJA = 45                 # filas de latitud por franja al calcular medias anuales
@@ -88,12 +83,9 @@ ESPECIES_PRINCIPALES = {
 }
 
 # Variables que describen el hábitat. La dirección del viento y los aerosoles quedan fuera.
-# Sólo se usan las que tengan datos. Las tres primeras salen de la temperatura del mar de
-# OISST (rejilla FINA, ver extremos_sst); la clorofila también es FINA; el resto es de la
-# rejilla BASE (1°) y se repite en las 4 celdas de 0,5° que cubre cada celda.
-VARIABLES_SST = ["sst_winter_min", "sst_summer_max", "mhw_months"]
-VARIABLES_HABITAT = VARIABLES_SST + ["fitoplancton", "salinidad", "fluorescencia",
-                                     "dif_temp_mar_aire", "evaporacion", "viento_velocidad"]
+# Sólo se usan las que tengan datos.
+VARIABLES_HABITAT = ["temperatura", "salinidad", "fitoplancton", "fluorescencia",
+                     "dif_temp_mar_aire", "evaporacion", "viento_velocidad"]
 
 
 class ErrorEspecie(Exception):
@@ -109,77 +101,32 @@ def ruta_especie(nombre: str) -> Path:
 
 
 def _mar() -> np.ndarray:
-    """Máscara de mar de la rejilla FINA (de OISST); si aún no hay, la BASE ampliada."""
-    g = almacen.abrir_grupo(almacen.FINA)
-    if g is not None and g["mar"][:].any():
-        return g["mar"][:]
-    return almacen.ampliar(almacen.abrir_grupo(almacen.BASE)["mar"][:])
+    return zarr.open_group(almacen.RUTA_AMBIENTE, mode="r", use_consolidated=False)["mar"][:]
 
 
 # --------------------------------------------------------------------------- medias anuales
 
-def extremos_sst(g_fino, anios: np.ndarray, franja: int = FRANJA) -> dict[str, np.ndarray]:
-    """
-    Por año y celda, a partir de la temperatura del mar mensual (OISST):
-      sst_winter_min  la media mensual más baja del año (el mes más frío);
-      sst_summer_max  la más alta (el mes más cálido);
-      mhw_months      meses de ola de calor marina: meses por encima del percentil 90 de ese
-                      mes del año en BASE_MHW. Es una versión mensual de la definición de
-                      Hobday et al. (2016), que usa datos diarios.
-    Hacen falta MESES_MINIMOS meses con dato en el año. Por franjas de latitud: poca RAM.
-    """
-    nlat, nlon = g_fino["sst"].shape[1:]
-    salida = {v: np.full((len(anios), nlat, nlon), np.nan, dtype="float32") for v in VARIABLES_SST}
-    en_base = (anios >= BASE_MHW[0]) & (anios <= BASE_MHW[1])
-    for a in range(0, nlat, franja):
-        b = min(a + franja, nlat)
-        m = almacen.meses_anios(g_fino, "sst", anios, a, b)           # (años, 12, filas, columnas)
-        completo = (~np.isnan(m)).sum(axis=1) >= MESES_MINIMOS
-        with warnings.catch_warnings():                                # celdas de tierra: todo NaN
-            warnings.simplefilter("ignore", RuntimeWarning)
-            salida["sst_winter_min"][:, a:b] = np.where(completo, np.nanmin(m, axis=1), np.nan)
-            salida["sst_summer_max"][:, a:b] = np.where(completo, np.nanmax(m, axis=1), np.nan)
-            referencia = m[en_base]
-            umbral = np.nanpercentile(referencia, 90, axis=0)           # (12, filas, columnas)
-            umbral[(~np.isnan(referencia)).sum(axis=0) < 10] = np.nan   # al menos 10 años de referencia
-            calor = (m > umbral[None]).sum(axis=1).astype("float32")
-        salida["mhw_months"][:, a:b] = np.where(completo & ~np.isnan(umbral).all(axis=0), calor, np.nan)
-    return salida
-
-
 def actualizar_anual() -> xr.Dataset:
-    """
-    Medias y extremos anuales de las variables de hábitat en la rejilla FINA, de 1980 al
-    último año completo. Una variable cada vez: el pico de RAM es de unos cientos de MB.
-    """
-    g_base, g_fino = almacen.abrir_grupo(almacen.BASE), almacen.abrir_grupo(almacen.FINA)
-    if g_base is None and g_fino is None:
+    """Media anual por celda de las variables de hábitat, de 1980 al último año completo."""
+    if not almacen.RUTA_AMBIENTE.exists():
+        raise ErrorEspecie("No hay datos ambientales: ejecuta antes el recolector")
+    g = zarr.open_group(almacen.RUTA_AMBIENTE, mode="r", use_consolidated=False)
+    variables = [v for v in VARIABLES_HABITAT if v in g and g[v].attrs.get("hasta")]
+    if not variables:
         raise ErrorEspecie("No hay datos ambientales: ejecuta antes el recolector")
     anios = np.arange(almacen.ORIGEN.year, date.today().year)          # hasta el último año completo
-    mar = _mar()
+    mar = g["mar"][:]
+
     datos = {}
-
-    def guardar(v: str, anual: np.ndarray, unidad: str):
+    for v in variables:                                              # una variable cada vez: poca RAM
+        anual = almacen.medias_anuales(g, v, anios, MESES_MINIMOS, FRANJA)
         anual[:, ~mar] = np.nan
-        datos[v] = (("anio", "lat", "lon"), anual, {"units": unidad})
+        datos[v] = (("anio", "lat", "lon"), anual, {"units": g[v].attrs.get("units", "")})
 
-    if g_fino is not None and "sst" in g_fino and g_fino["sst"].attrs.get("hasta"):
-        for v, anual in extremos_sst(g_fino, anios).items():
-            guardar(v, anual, "meses" if v == "mhw_months" else "°C")
-    for v in VARIABLES_HABITAT[len(VARIABLES_SST):]:
-        if g_fino is not None and v in g_fino and g_fino[v].attrs.get("hasta"):
-            guardar(v, almacen.medias_anuales(g_fino, v, anios, MESES_MINIMOS, FRANJA), g_fino[v].attrs.get("units", ""))
-        elif g_base is not None and v in g_base and g_base[v].attrs.get("hasta"):
-            gruesa = almacen.medias_anuales(g_base, v, anios, MESES_MINIMOS, FRANJA)
-            guardar(v, almacen.ampliar(gruesa), g_base[v].attrs.get("units", ""))
-            del gruesa
-    if not datos:
-        raise ErrorEspecie("No hay datos ambientales: ejecuta antes el recolector")
-
-    ds = xr.Dataset(datos, coords={"anio": anios, "lat": R.lats, "lon": R.lons},
-                    attrs={"actualizada": _ahora(), "meses_minimos": MESES_MINIMOS, "paso_grados": R.paso})
+    ds = xr.Dataset(datos, coords={"anio": anios, "lat": almacen.LATS, "lon": almacen.LONS},
+                    attrs={"actualizada": _ahora(), "meses_minimos": MESES_MINIMOS})
     almacen.guardar_dataset(ds, almacen.RUTA_ANUAL, TROZOS)
-    log.info("Medias anuales %d-%d (%s°) con %s", anios[0], anios[-1], R.paso, list(datos))
+    log.info("Medias anuales %d-%d con %s", anios[0], anios[-1], variables)
     return xr.open_zarr(almacen.RUTA_ANUAL, consolidated=None)
 
 
@@ -207,75 +154,13 @@ def _elegir_indice(anual: xr.Dataset) -> tuple[list[str], list[int]]:
 
 # --------------------------------------------------------------------------- OBIS
 
-@lru_cache(maxsize=512)
-def _completar_obis(texto: str) -> tuple[dict, ...]:
-    """Autocompletado de OBIS (máximo 20 taxones de cualquier rango, por orden alfabético)."""
-    r = requests.get(f"{OBIS_URL}/taxon/complete/verbose/{quote(texto)}", timeout=30)
+def buscar_especies(texto: str, limite: int = 20) -> list[dict]:
+    """Autocompletado de nombres científicos (sólo especies)."""
+    r = requests.get(f"{OBIS_URL}/taxon/complete/verbose/{texto}", timeout=30)
     r.raise_for_status()
-    return tuple(r.json())
-
-
-@lru_cache(maxsize=512)
-def _especies_de(taxon: str, cuantas: int = 1000) -> tuple[dict, ...]:
-    """
-    Especies aceptadas de un taxón (género, familia, orden...) con su número de registros en
-    OBIS. La lista de comprobación de OBIS ya viene ordenada de más a menos registros.
-    """
-    r = requests.get(f"{OBIS_URL}/checklist", params={"scientificname": taxon, "size": cuantas}, timeout=60)
-    if r.status_code == 404:
-        return ()
-    r.raise_for_status()
-    return tuple({"nombre": t["scientificName"], "aphia_id": t.get("taxonID"), "clase": t.get("class"),
-                  "familia": t.get("family"), "registros": int(t.get("records") or 0)}
-                 for t in r.json().get("results", [])
-                 if t.get("taxonRank") == "Species" and t.get("taxonomicStatus", "accepted") == "accepted")
-
-
-def buscar_especies(texto: str, limite: int = 15) -> list[dict]:
-    """
-    Autocompletado de nombres científicos de especies con registros en OBIS. Primero las que
-    empiezan por lo escrito y, dentro de cada grupo, las más registradas.
-      * «Octopus v»: especies del género Octopus cuyo epíteto empieza por «v».
-      * «thunn»: especies de los géneros que empiezan por «thunn» (Thunnus...).
-      * «octo»: además, especies de los grupos superiores que empiezan así (Octopoda...).
-    El autocompletado de OBIS sólo da 20 taxones de cualquier rango y en orden alfabético
-    (con «octo» no sale ninguna especie), así que se usa para encontrar géneros y grupos, y
-    después se piden sus especies con su número de registros.
-    """
-    palabras = texto.split()
-    if not palabras:
-        return []
-    primera = palabras[0].capitalize()
-    resto = " ".join(palabras[1:]).lower()
-    # Taxones candidatos: el género escrito tal cual (si está completo), los géneros que
-    # empiezan así y, si es una sola palabra, los grupos superiores que empiezan así.
-    generos, grupos = [primera], []
-    for t in _completar_obis(primera if not resto else " ".join(palabras)):
-        nombre, rango = t.get("scientificName", ""), t.get("rank")
-        if rango == "Species":
-            nombre, rango = nombre.split()[0], "Genus"
-        if not nombre.lower().startswith(primera.lower()):
-            continue
-        if rango == "Genus" and nombre not in generos:
-            generos.append(nombre)
-        elif rango not in ("Genus", "Subgenus", "Subspecies", "Variety", "Form") and not resto:
-            grupos.append(nombre)
-    if resto:   # «Género epíteto»: sólo ese género (o el más parecido)
-        generos = [g for g in generos if g.lower() == primera.lower()][:1] or generos[:3]
-    tareas = [(g, 1000) for g in generos[:6]] + [(g, 300) for g in grupos[:3]]
-    with ThreadPoolExecutor(max_workers=8) as pool:
-        listas = list(pool.map(lambda t: _especies_de(*t), tareas))
-    vistos, especies = set(), []
-    for lista in listas:
-        for e in lista:
-            epiteto = e["nombre"].split(" ", 1)[1].lower() if " " in e["nombre"] else ""
-            if e["nombre"] in vistos or e["registros"] == 0 or (resto and not epiteto.startswith(resto)):
-                continue
-            vistos.add(e["nombre"])
-            especies.append(e)
-    empieza = " ".join(palabras).lower()
-    especies.sort(key=lambda e: (not e["nombre"].lower().startswith(empieza), -e["registros"]))
-    return especies[:limite]
+    return [{"nombre": t["scientificName"], "aphia_id": t["id"], "clase": t.get("class"),
+             "familia": t.get("family")}
+            for t in r.json() if t.get("rank") == "Species"][:limite]
 
 
 def _taxon(nombre: str) -> dict:
@@ -316,19 +201,19 @@ def _contar_avistamientos(avist: np.ndarray, mar: np.ndarray, anios: np.ndarray)
     Avistamientos por (año, lat, lon). Cada uno va a su celda si es de mar; si cae en tierra,
     a la celda de mar vecina más cercana (a menos de DISTANCIA_MAX_KM). Índice 0 = año desconocido.
     """
-    conteo = np.zeros((len(anios), R.nlat, R.nlon), dtype="int32")
+    conteo = np.zeros((len(anios), almacen.NLAT, almacen.NLON), dtype="int32")
     if not len(avist):
         return conteo
     lat, lon, anio = avist[:, 0].astype(float), avist[:, 1].astype(float), avist[:, 2].astype(int)
-    i, j = almacen.indices_celda(lat, lon, R)
+    i, j = almacen.indices_celda(lat, lon)
     # Para todos, las 9 celdas del entorno; nos quedamos con la de mar más cercana.
     mejor_i, mejor_j, mejor_d = i.copy(), j.copy(), np.where(mar[i, j], 0.0, np.inf)
     for di in (-1, 0, 1):
         for dj in (-1, 0, 1):
             if di == dj == 0:
                 continue
-            vi, vj = np.clip(i + di, 0, R.nlat - 1), (j + dj) % R.nlon
-            d = np.where(mar[vi, vj], almacen.distancia_km(lat, lon, R.lats[vi], R.lons[vj]), np.inf)
+            vi, vj = np.clip(i + di, 0, almacen.NLAT - 1), (j + dj) % almacen.NLON
+            d = np.where(mar[vi, vj], almacen.distancia_km(lat, lon, almacen.LATS[vi], almacen.LONS[vj]), np.inf)
             cerca = d < mejor_d
             mejor_i, mejor_j, mejor_d = np.where(cerca, vi, mejor_i), np.where(cerca, vj, mejor_j), np.minimum(d, mejor_d)
     ok = mejor_d <= DISTANCIA_MAX_KM
@@ -353,7 +238,7 @@ def calcular_especie(nombre: str, anual: xr.Dataset | None = None, refrescar_obi
     atributos = dict(anterior.attrs) if anterior is not None else {}
     descargado = atributos.get("obis_descargado")
     if (refrescar_obis or anterior is None or "anio_registro" not in anterior.dims
-            or anterior.sizes.get("lat") != R.nlat or descargado is None
+            or anterior.sizes.get("lat") != almacen.NLAT or descargado is None
             or datetime.fromisoformat(descargado) < datetime.now(timezone.utc) - timedelta(days=DIAS_REFRESCO_OBIS)):
         taxon = _taxon(nombre)
         avist = _descargar_avistamientos(taxon["scientificName"])
@@ -393,7 +278,7 @@ def calcular_especie(nombre: str, anual: xr.Dataset | None = None, refrescar_obi
     variables = [v for v in variables if v in muestras]
     if not variables:
         raise ErrorEspecie(f"'{nombre}' no tiene avistamientos en celdas con las variables del índice")
-    forma = (len(periodo), R.nlat, R.nlon)
+    forma = (len(periodo), almacen.NLAT, almacen.NLON)
     idoneidad = np.full(forma, np.inf, dtype="float32")
     limitante = np.full(forma, -1, dtype="int8")
     for k, v in enumerate(variables):
@@ -440,12 +325,11 @@ def calcular_especie(nombre: str, anual: xr.Dataset | None = None, refrescar_obi
                       np.array([np.percentile(muestras[v], PERCENTILES) for v in variables_nicho], dtype=float)),
             "nicho_n": (("variable",), np.array([len(muestras[v]) for v in variables_nicho], dtype="int32")),
         },
-        coords={"lat": R.lats, "lon": R.lons, "anio": periodo, "anio_registro": anios_registro,
+        coords={"lat": almacen.LATS, "lon": almacen.LONS, "anio": periodo, "anio_registro": anios_registro,
                 "variable": variables_nicho, "percentil": PERCENTILES},
         attrs={**atributos, "nombre": nombre, "nombre_comun": ESPECIES_PRINCIPALES.get(nombre),
                "principal": nombre in ESPECIES_PRINCIPALES, "registros_usados": int(conteo.sum()),
-               "anual": anual.attrs.get("actualizada"), "calculado": _ahora(), "resumen": resumen,
-               "paso_grados": R.paso},
+               "anual": anual.attrs.get("actualizada"), "calculado": _ahora(), "resumen": resumen},
     )
     almacen.guardar_dataset(ds, ruta_especie(nombre), TROZOS)
     log.info("%s: índice %d-%d con %s; nicho con %s", nombre, periodo[0], periodo[-1], variables, variables_nicho)

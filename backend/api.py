@@ -17,6 +17,11 @@ Endpoints:
     GET /api/especies/{nombre}               Nicho y resumen anual; si no está calculada, se calcula ahora.
     GET /api/especies/{nombre}/mapa?anio=    Idoneidad por celda en un año y avistamientos, para un mapa.
 
+    GET /api/habitat                         Estado del almacén de hábitat (0,25°, cuatro variables de especies).
+    GET /api/habitat/especies                Especies con el hábitat ya calculado.
+    GET /api/habitat/especies/{nombre}       Todo lo de una especie en un JSON: perfil, idoneidad del Mediterráneo
+                                             por celda y año, indicadores y tendencias. Se calcula si hace falta.
+
     GET /api/trends                          Conjuntos para la pantalla Trends (región + años).
     GET /api/trends/{conjunto}/{fichero}     meta.json y <variable>.json en el formato de la web.
 
@@ -37,58 +42,31 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
 
 import almacen
 import especies
+import especies_habitat
 import exportar_trends
+import habitat
 from datos_mediterraneo import VARIABLES, media_serie
-import recolector
 from recolector import FUENTES, VARIABLES_RECOLECTADAS
 
 app = FastAPI(title="Estado del Mediterráneo", version="1.0")
 # Ajustar allow_origins al dominio de la web en producción.
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["GET", "POST"], allow_headers=["*"])
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["GET"], allow_headers=["*"])
 # Los mapas mundiales son JSON grandes y muy repetitivos: comprimidos ocupan ~5 veces menos.
 app.add_middleware(GZipMiddleware, minimum_size=2000)
-
-
-class ForecastRequest(BaseModel):
-    years: list[int]
-    values: list[float | None]
-
-
-@app.post("/api/forecast")
-def forecast(payload: ForecastRequest):
-    """Forecast one selected annual series, on demand, with Darts exponential smoothing."""
-    if not (8 <= len(payload.years) <= 100 and 8 <= len(payload.values) <= 100):
-        raise HTTPException(422, "Forecast input must contain 8–100 years and values.")
-    try:
-        from pronostico import pronosticar
-    except ImportError as e:
-        raise HTTPException(503, "Forecasting requires the Darts package; install backend requirements.") from e
-    try:
-        return pronosticar(payload.years, payload.values)
-    except ValueError as e:
-        raise HTTPException(422, str(e)) from e
-    except ImportError as e:
-        raise HTTPException(503, "Forecasting requires the Darts package; install backend requirements.") from e
-    except Exception as e:
-        raise HTTPException(422, "Darts could not fit a forecast to this series.") from e
 
 
 class Zona:
     """Recorte opcional de los mapas (por defecto, todo el planeta)."""
     def __init__(self, lat_min: float = Query(-90, ge=-90, le=90), lat_max: float = Query(90, ge=-90, le=90),
                  lon_min: float = Query(-180, ge=-180, le=180), lon_max: float = Query(180, ge=-180, le=180)):
-        self.caja = (lat_min, lat_max, lon_min, lon_max)
+        self.filas = (almacen.LATS >= lat_min) & (almacen.LATS <= lat_max)
+        self.columnas = (almacen.LONS >= lon_min) & (almacen.LONS <= lon_max)
 
-    def celdas(self, mascara: np.ndarray, lats: np.ndarray, lons: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-        """Celdas (filas, columnas) de `mascara` dentro de la zona, para una rejilla con esos centros."""
-        lat_min, lat_max, lon_min, lon_max = self.caja
-        filas = (lats >= lat_min) & (lats <= lat_max)
-        columnas = (lons >= lon_min) & (lons <= lon_max)
-        return np.nonzero(mascara & filas[:, None] & columnas[None, :])
+    def celdas(self, mascara: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        return np.nonzero(mascara & self.filas[:, None] & self.columnas[None, :])
 
 
 def _mes(texto: str) -> date:
@@ -98,20 +76,18 @@ def _mes(texto: str) -> date:
         raise HTTPException(400, f"Mes no válido: {texto!r} (formato AAAA-MM)")
 
 
-def _ambiente(variable: str):
-    """(rejilla, Dataset) del almacén mensual donde está la variable (1° o 0,5°)."""
-    r = almacen.rejilla_de(variable) or almacen.BASE
-    ds = almacen.abrir_ambiente(r)
+def _ambiente():
+    ds = almacen.abrir_ambiente()
     if ds is None:
         raise HTTPException(503, "Todavía no hay datos: ejecuta el recolector")
-    return r, ds
+    return ds
 
 
 @app.get("/api/variables")
 def variables():
     return {v: {"nombre": VARIABLES[v]["nombre"], "unidades": VARIABLES[v]["unidades"],
                 "fuente": FUENTES[v]["fuente"], "desde": FUENTES[v]["desde"], "paso": "mensual",
-                "resolucion_grados": recolector.rejilla(v).paso}
+                "resolucion_grados": almacen.PASO}
             for v in VARIABLES_RECOLECTADAS}
 
 
@@ -127,20 +103,20 @@ def datos(lat: float = Query(..., ge=-90, le=90), lon: float = Query(..., ge=-18
     if desconocidas:
         raise HTTPException(400, f"Variables desconocidas: {sorted(desconocidas)}")
 
+    ds = _ambiente()
+    mar = ds["mar"].values
     resultado = {}
     for v in variables:
         entrada = {"nombre": VARIABLES[v]["nombre"], "unidades": VARIABLES[v]["unidades"],
                    "fuente": FUENTES[v]["fuente"], "punto": None, "serie": [],
                    "media": None, "ultimo": None, "error": None}
-        r, ds = _ambiente(v)
-        celda = almacen.celda_mas_cercana(ds["mar"].values, lat, lon, r=r)
+        celda = almacen.celda_mas_cercana(mar, lat, lon)
         if celda is None:
             entrada["error"] = "No hay celdas de mar cerca de esa coordenada"
         elif v not in ds:
             entrada["error"] = "Variable todavía sin datos"
         else:
-            la, lo = float(r.lats[celda[0]]), float(r.lons[celda[1]])
-            entrada["resolucion_grados"] = r.paso
+            la, lo = float(almacen.LATS[celda[0]]), float(almacen.LONS[celda[1]])
             entrada["punto"] = {"lat": la, "lon": lo, "distancia_km": round(float(almacen.distancia_km(lat, lon, la, lo)), 1)}
             serie = ds[v].isel(lat=celda[0], lon=celda[1]).sel(time=slice(desde_m.isoformat(), hasta_m.isoformat())).load()
             serie = serie[serie.notnull()]
@@ -160,31 +136,26 @@ def mapa(variable: str, mes: str | None = Query(None, description="AAAA-MM; por 
     """Media mensual de cada celda en `mes`."""
     if variable not in VARIABLES_RECOLECTADAS:
         raise HTTPException(400, f"Variable desconocida: {variable}")
-    r, ds = _ambiente(variable)
+    ds = _ambiente()
     if variable not in ds or not ds[variable].attrs.get("hasta"):
         return {"variable": variable, "mes": None, "puntos": []}
     m = _mes(mes or ds[variable].attrs["hasta"])
     valores = ds[variable].sel(time=m.isoformat()).values
-    ii, jj = zona.celdas(~np.isnan(valores), r.lats, r.lons)
+    ii, jj = zona.celdas(~np.isnan(valores))
     return {"variable": variable, "unidades": VARIABLES[variable]["unidades"], "mes": m.isoformat()[:7],
-            "paso_grados": r.paso,
-            "puntos": [[float(r.lats[i]), float(r.lons[j]), float(f"{valores[i, j]:.5g}")]
+            "paso_grados": almacen.PASO,
+            "puntos": [[float(almacen.LATS[i]), float(almacen.LONS[j]), float(f"{valores[i, j]:.5g}")]
                        for i, j in zip(ii, jj)]}
 
 
 @app.get("/api/estado")
 def estado():
-    salida = {"rejillas": {}, "variables": {}}
-    for r in almacen.REJILLAS:
-        g = almacen.abrir_grupo(r)
-        if g is None:
-            continue
-        salida["rejillas"][r.nombre] = {"paso_grados": r.paso, "celdas_mar": int(g["mar"][:].sum())}
-        for v in VARIABLES_RECOLECTADAS:
-            if v in g:
-                salida["variables"][v] = {"desde": g[v].attrs.get("desde"), "hasta": g[v].attrs.get("hasta"),
-                                          "resolucion_grados": r.paso}
-    return salida
+    ds = almacen.abrir_ambiente()
+    if ds is None:
+        return {"celdas_mar": 0, "variables": {}}
+    return {"celdas_mar": int(ds["mar"].values.sum()),
+            "variables": {v: {"desde": ds[v].attrs.get("desde"), "hasta": ds[v].attrs.get("hasta")}
+                          for v in VARIABLES_RECOLECTADAS if v in ds}}
 
 
 # --------------------------------------------------------------------------- especies
@@ -249,16 +220,43 @@ def especie_mapa(nombre: str, anio: int | None = Query(None, description="por de
     total = ds["registros"].sum("anio_registro").values
     del_anio = (ds["registros"].sel(anio_registro=anio).values if anio in ds.anio_registro.values
                 else np.zeros_like(total))
-    lats, lons = ds.lat.values, ds.lon.values                      # rejilla de la especie (0,5°)
-    ii, jj = zona.celdas(~np.isnan(idoneidad), lats, lons)
-    ri, rj = zona.celdas(total > 0, lats, lons)
-    return {"especie": nombre, "anio": anio, "umbral_idoneo": especies.UMBRAL_IDONEO,
-            "paso_grados": float(round(lats[1] - lats[0], 4)),
+    ii, jj = zona.celdas(~np.isnan(idoneidad))
+    ri, rj = zona.celdas(total > 0)
+    return {"especie": nombre, "anio": anio, "umbral_idoneo": especies.UMBRAL_IDONEO, "paso_grados": almacen.PASO,
             "limitantes": list(ds["limitante"].attrs["codigos"]),
-            "puntos": [[float(lats[i]), float(lons[j]), round(float(idoneidad[i, j]), 3),
+            "puntos": [[float(almacen.LATS[i]), float(almacen.LONS[j]), round(float(idoneidad[i, j]), 3),
                         int(limitante[i, j])] for i, j in zip(ii, jj)],
-            "avistamientos": [[float(lats[i]), float(lons[j]), int(total[i, j]), int(del_anio[i, j])]
+            "avistamientos": [[float(almacen.LATS[i]), float(almacen.LONS[j]), int(total[i, j]), int(del_anio[i, j])]
                               for i, j in zip(ri, rj)]}
+
+
+# --------------------------------------------------------------------------- hábitat (portal de especies de la web)
+
+@app.get("/api/habitat")
+def habitat_estado():
+    meta = habitat.leer_meta()
+    if meta is None:
+        raise HTTPException(503, "Todavía no hay almacén de hábitat: ejecuta `python habitat.py`")
+    return {**meta, "variables": habitat.VARIABLES, "metodo": especies_habitat.tendencias.METODO}
+
+
+@app.get("/api/habitat/especies")
+def habitat_lista():
+    return especies_habitat.listar()
+
+
+@app.get("/api/habitat/especies/{nombre}")
+def habitat_especie(nombre: str):
+    """El JSON completo de la especie (lo escribe especies_habitat.py). La primera vez se calcula (OBIS + cálculo)."""
+    try:
+        ruta = especies_habitat.asegurar(_nombre_especie(nombre))
+    except (especies_habitat.ErrorEspecie, especies.ErrorEspecie) as e:
+        raise HTTPException(404, str(e))
+    except habitat.ErrorHabitat as e:
+        raise HTTPException(503, str(e))
+    except requests.RequestException as e:
+        raise HTTPException(502, f"OBIS no responde: {e}")
+    return FileResponse(ruta, media_type="application/json", headers={"Cache-Control": "public, max-age=600"})
 
 
 # --------------------------------------------------------------------------- trends (web)

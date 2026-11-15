@@ -7,4 +7,3 @@ zarr>=3.0
 scipy>=1.11        # leer el NetCDF-3 que devuelve ERDDAP
 # Opcional: obtener el token de Earthdata desde ~/.netrc
 # earthaccess
-#darts>=0.41

@@ -1,27 +1,20 @@
 """
 Almacenamiento en Zarr (lectura con xarray), compartido por el recolector, las especies y la API.
 
-Hay dos rejillas MUNDIALES (ver REJILLAS):
-  * BASE, 1° (180 x 360 celdas): casi todas las variables (MERRA-2, SMAP, fluorescencia).
-  * FINA, 0,5° (360 x 720 celdas): temperatura del mar (OISST) y clorofila. De la temperatura
-    salen además, por año, la mínima de invierno, la máxima de verano y los meses de ola de
-    calor marina (especies.py). Las especies se calculan en esta rejilla.
-
     DATOS_DIR/
-      ambiente.zarr       rejilla BASE: un array por variable (time, lat, lon) con la MEDIA
-                          MENSUAL, más la máscara de mar `mar` (lat, lon)
-      ambiente_fino.zarr  lo mismo en la rejilla FINA
-      anual.zarr          medias y extremos anuales en la rejilla FINA (especies.py)
-      especies/*.zarr     un almacén por especie, con resultados por año (especies.py)
-      trends/             ficheros para la pantalla Trends (exportar_trends.py)
+      ambiente.zarr       Un array por variable (time, lat, lon) con la MEDIA MENSUAL en una
+                          rejilla MUNDIAL de PASO grados (1° por defecto: 180 x 360 celdas),
+                          más la máscara de mar `mar` (lat, lon). El eje de tiempo es fijo, un
+                          paso por mes de ORIGEN a FIN (fecha = día 1 de cada mes).
+      anual.zarr          Media anual por celda (especies.py).
+      especies/*.zarr     Un almacén por especie, con resultados por año (especies.py).
 
-El eje de tiempo es fijo, un paso por mes de ORIGEN a FIN (fecha = día 1 de cada mes). Los
-trozos en disco son de 12 meses x TROZO_ESPACIO x TROZO_ESPACIO celdas: leer la serie de un
-punto o el mapa de un mes sólo toca unos pocos trozos, nunca el planeta entero, y los trozos
-sin datos (años antes de un satélite) no se guardan.
+Los trozos en disco son de 12 meses x TROZO_ESPACIO x TROZO_ESPACIO celdas: leer la serie de
+un punto o el mapa de un mes sólo toca unos pocos trozos, nunca el planeta entero, y los
+trozos sin datos (años antes de un satélite) no se guardan.
 
-El recolector es el único que escribe en los almacenes de ambiente (con la API de zarr, por
-bloques de meses); el resto los lee con xarray.
+El recolector es el único que escribe en ambiente.zarr (con la API de zarr, por bloques
+de meses); el resto lo lee con xarray.
 """
 
 from __future__ import annotations
@@ -29,7 +22,6 @@ from __future__ import annotations
 import os
 import shutil
 import warnings
-from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 
@@ -42,46 +34,21 @@ import zarr
 warnings.filterwarnings("ignore", message="Consolidated metadata is currently not part")
 
 DATOS_DIR = Path(os.environ.get("DATOS_DIR", Path(__file__).parent / "datos"))
+RUTA_AMBIENTE = DATOS_DIR / "ambiente.zarr"
 RUTA_ANUAL = DATOS_DIR / "anual.zarr"
 DIR_ESPECIES = DATOS_DIR / "especies"
 
+# Resolución de la rejilla mundial. 1° cabe holgado en disco y RAM pequeños; 0,5° multiplica
+# por 4 el espacio (cambiarla obliga a volver a cargar los datos).
+PASO = float(os.environ.get("DATOS_PASO", "1.0"))
+LATS = np.round(np.arange(-90 + PASO / 2, 90, PASO), 4)      # centros de celda, de sur a norte
+LONS = np.round(np.arange(-180 + PASO / 2, 180, PASO), 4)    # centros de celda, de oeste a este
+NLAT, NLON = len(LATS), len(LONS)
 ORIGEN = date(1980, 1, 1)            # primer mes de MERRA-2
 FIN = date(2040, 12, 1)
 NT = (FIN.year - ORIGEN.year) * 12 + FIN.month - ORIGEN.month + 1   # 732 meses
 TROZO_TIEMPO = 12                    # meses por trozo en disco
 TROZO_ESPACIO = 90                   # celdas por lado de cada trozo en disco
-
-
-@dataclass(frozen=True)
-class Rejilla:
-    """Rejilla mundial regular: centros de celda de sur a norte y de oeste a este."""
-    nombre: str
-    paso: float
-    ruta: Path                        # almacén de las medias mensuales
-    lats: np.ndarray = field(init=False, repr=False, compare=False)
-    lons: np.ndarray = field(init=False, repr=False, compare=False)
-
-    def __post_init__(self):
-        object.__setattr__(self, "lats", np.round(np.arange(-90 + self.paso / 2, 90, self.paso), 4))
-        object.__setattr__(self, "lons", np.round(np.arange(-180 + self.paso / 2, 180, self.paso), 4))
-
-    @property
-    def nlat(self) -> int:
-        return len(self.lats)
-
-    @property
-    def nlon(self) -> int:
-        return len(self.lons)
-
-
-BASE = Rejilla("base", float(os.environ.get("DATOS_PASO", "1.0")), DATOS_DIR / "ambiente.zarr")
-FINA = Rejilla("fina", float(os.environ.get("DATOS_PASO_FINO", "0.5")), DATOS_DIR / "ambiente_fino.zarr")
-REJILLAS = (BASE, FINA)
-FACTOR_FINO = int(round(BASE.paso / FINA.paso))   # celdas finas por lado en cada celda base (2)
-
-# Nombres de siempre, para la rejilla BASE.
-PASO, LATS, LONS, NLAT, NLON = BASE.paso, BASE.lats, BASE.lons, BASE.nlat, BASE.nlon
-RUTA_AMBIENTE = BASE.ruta
 
 
 def indice_mes(d: date) -> int:
@@ -99,55 +66,51 @@ def sumar_meses(d: date, n: int) -> date:
     return mes_indice(indice_mes(d) + n)
 
 
-def indices_celda(lat, lon, r: Rejilla = BASE) -> tuple[np.ndarray, np.ndarray]:
+def indices_celda(lat, lon) -> tuple[np.ndarray, np.ndarray]:
     """Fila y columna de la celda que contiene cada punto. Admite longitudes en -180..180 o 0..360."""
     lat, lon = np.asarray(lat, dtype=float), np.asarray(lon, dtype=float)
-    i = np.clip(np.floor((lat + 90) / r.paso).astype(int), 0, r.nlat - 1)
-    j = np.floor(((lon + 180) % 360) / r.paso).astype(int) % r.nlon
+    i = np.clip(np.floor((lat + 90) / PASO).astype(int), 0, NLAT - 1)
+    j = np.floor(((lon + 180) % 360) / PASO).astype(int) % NLON
     return i, j
 
 
-def a_rejilla(valores: np.ndarray, lats: np.ndarray, lons: np.ndarray, r: Rejilla = BASE) -> np.ndarray:
+def a_rejilla(valores: np.ndarray, lats: np.ndarray, lons: np.ndarray) -> np.ndarray:
     """
     Media por celda de una rejilla de origen cualquiera: `valores` (len(lats), len(lons)),
-    con NaN donde no hay dato. Devuelve (nlat, nlon) float32, NaN en celdas sin ningún punto.
+    con NaN donde no hay dato. Devuelve (NLAT, NLON) float32, NaN en celdas sin ningún punto.
     """
-    i = indices_celda(lats, 0, r)[0]
-    j = indices_celda(0, lons, r)[1]
+    i = indices_celda(lats, 0)[0]
+    j = indices_celda(0, lons)[1]
     ii, jj = np.meshgrid(i, j, indexing="ij")
     ok = ~np.isnan(valores)
-    suma = np.zeros((r.nlat, r.nlon))
-    cuenta = np.zeros((r.nlat, r.nlon))
+    suma = np.zeros((NLAT, NLON))
+    cuenta = np.zeros((NLAT, NLON))
     np.add.at(suma, (ii[ok], jj[ok]), valores[ok])
     np.add.at(cuenta, (ii[ok], jj[ok]), 1)
     with np.errstate(invalid="ignore", divide="ignore"):
         return np.where(cuenta > 0, suma / cuenta, np.nan).astype("float32")
 
 
-def ampliar(campo: np.ndarray, factor: int = FACTOR_FINO) -> np.ndarray:
-    """Pasa un campo (..., lat, lon) de la rejilla BASE a la FINA repitiendo cada celda factor x factor."""
-    return np.repeat(np.repeat(campo, factor, axis=-2), factor, axis=-1)
-
-
 # --------------------------------------------------------------------------- escritura
 
-def abrir_escritura(variables: list[str], unidades: dict[str, str], r: Rejilla = BASE) -> zarr.Group:
-    """Abre el almacén de la rejilla para escribir, creándolo con las variables que falten."""
+def abrir_escritura(variables: list[str], unidades: dict[str, str]) -> zarr.Group:
+    """Abre ambiente.zarr para escribir, creando el almacén y las variables que falten."""
     DATOS_DIR.mkdir(parents=True, exist_ok=True)
     # Sin metadatos consolidados: al escribir hay que ver las variables recién creadas.
-    g = zarr.open_group(r.ruta, mode="a", use_consolidated=False)
+    g = zarr.open_group(RUTA_AMBIENTE, mode="a", use_consolidated=False)
     if "time" not in g:
         dias = np.array([(mes_indice(i) - ORIGEN).days for i in range(NT)], dtype="int32")
         g.create_array("time", data=dias, dimension_names=["time"],
                        attributes={"units": f"days since {ORIGEN.isoformat()}", "calendar": "proleptic_gregorian"})
-        g.create_array("lat", data=r.lats, dimension_names=["lat"], attributes={"units": "degrees_north"})
-        g.create_array("lon", data=r.lons, dimension_names=["lon"], attributes={"units": "degrees_east"})
-        g.create_array("mar", data=np.zeros((r.nlat, r.nlon), dtype=bool), dimension_names=["lat", "lon"],
-                       attributes={"descripcion": "celda de mar", "paso_grados": r.paso})
+        g.create_array("lat", data=LATS, dimension_names=["lat"], attributes={"units": "degrees_north"})
+        g.create_array("lon", data=LONS, dimension_names=["lon"], attributes={"units": "degrees_east"})
+        g.create_array("mar", data=np.zeros((NLAT, NLON), dtype=bool), dimension_names=["lat", "lon"],
+                       attributes={"descripcion": "celda de mar: fracción de océano de MERRA-2 >= 0,5 o algún dato de satélite",
+                                   "paso_grados": PASO})
     for v in variables:
         if v not in g:
-            g.create_array(v, shape=(NT, r.nlat, r.nlon), dtype="float32", fill_value=np.nan,
-                           chunks=(TROZO_TIEMPO, min(TROZO_ESPACIO, r.nlat), min(TROZO_ESPACIO, r.nlon)),
+            g.create_array(v, shape=(NT, NLAT, NLON), dtype="float32", fill_value=np.nan,
+                           chunks=(TROZO_TIEMPO, min(TROZO_ESPACIO, NLAT), min(TROZO_ESPACIO, NLON)),
                            dimension_names=["time", "lat", "lon"],
                            attributes={"units": unidades.get(v, ""), "desde": None, "hasta": None})
     return g
@@ -178,10 +141,9 @@ def marcar_mar(g: zarr.Group, celdas: np.ndarray) -> None:
     g["mar"][:] = g["mar"][:] | celdas
 
 
-def consolidar(r: Rejilla = BASE) -> None:
+def consolidar() -> None:
     """Actualiza los metadatos consolidados para que los lectores vean los cambios."""
-    if r.ruta.exists():
-        zarr.consolidate_metadata(r.ruta)
+    zarr.consolidate_metadata(RUTA_AMBIENTE)
 
 
 def guardar_dataset(ds: xr.Dataset, ruta: Path, trozos: dict | None = None) -> None:
@@ -202,41 +164,18 @@ def guardar_dataset(ds: xr.Dataset, ruta: Path, trozos: dict | None = None) -> N
 
 # --------------------------------------------------------------------------- lectura
 
-def abrir_grupo(r: Rejilla = BASE) -> zarr.Group | None:
-    """El almacén mensual de la rejilla, para leer con zarr (sin metadatos consolidados)."""
-    if not r.ruta.exists():
-        return None
-    return zarr.open_group(r.ruta, mode="r", use_consolidated=False)
-
-
-def rejilla_de(variable: str) -> Rejilla | None:
-    """Rejilla en cuyo almacén está guardada la variable (la FINA tiene prioridad)."""
-    for r in (FINA, BASE):
-        g = abrir_grupo(r)
-        if g is not None and variable in g:
-            return r
-    return None
-
-
-def meses_anios(g: zarr.Group, variable: str, anios: np.ndarray, a: int, b: int) -> np.ndarray:
-    """Medias mensuales (años, 12, b - a, nlon) de las filas a..b de una variable."""
-    t0 = indice_mes(date(int(anios[0]), 1, 1))
-    t1 = indice_mes(date(int(anios[-1]), 12, 1)) + 1
-    m = g[variable][t0:t1, a:b, :]
-    return m.reshape(len(anios), 12, b - a, m.shape[-1])
-
-
 def medias_anuales(g: zarr.Group, variable: str, anios: np.ndarray, meses_minimos: int = 9,
                    franja: int = 45) -> np.ndarray:
     """
-    Media anual (años, lat, lon) de una variable de un almacén mensual, sólo donde hay al
-    menos `meses_minimos` meses con dato. Se lee por franjas de latitud: poca RAM.
+    Media anual (años, lat, lon) de una variable de ambiente.zarr, sólo donde hay al menos
+    `meses_minimos` meses con dato. Se lee por franjas de latitud: pocas decenas de MB de RAM.
     """
-    nlat, nlon = g[variable].shape[1:]
-    anual = np.full((len(anios), nlat, nlon), np.nan, dtype="float32")
-    for a in range(0, nlat, franja):
-        b = min(a + franja, nlat)
-        m = meses_anios(g, variable, anios, a, b)
+    t0 = indice_mes(date(int(anios[0]), 1, 1))
+    t1 = indice_mes(date(int(anios[-1]), 12, 1)) + 1
+    anual = np.full((len(anios), NLAT, NLON), np.nan, dtype="float32")
+    for a in range(0, NLAT, franja):
+        b = min(a + franja, NLAT)
+        m = g[variable][t0:t1, a:b, :].reshape(len(anios), 12, b - a, NLON)
         cuenta = (~np.isnan(m)).sum(axis=1)
         with np.errstate(invalid="ignore", divide="ignore"):
             media = np.nansum(m, axis=1) / cuenta
@@ -244,21 +183,20 @@ def medias_anuales(g: zarr.Group, variable: str, anios: np.ndarray, meses_minimo
     return anual
 
 
-def abrir_ambiente(r: Rejilla = BASE) -> xr.Dataset | None:
-    if not r.ruta.exists():
+def abrir_ambiente() -> xr.Dataset | None:
+    if not RUTA_AMBIENTE.exists():
         return None
-    return xr.open_zarr(r.ruta, consolidated=None)
+    return xr.open_zarr(RUTA_AMBIENTE, consolidated=None)
 
 
-def celda_mas_cercana(mar: np.ndarray, lat: float, lon: float, max_km: float | None = None,
-                      r: Rejilla = BASE) -> tuple[int, int] | None:
+def celda_mas_cercana(mar: np.ndarray, lat: float, lon: float, max_km: float | None = None) -> tuple[int, int] | None:
     """Celda de mar más cercana a (lat, lon), o None si está a más de `max_km` (por defecto, 1,5 celdas)."""
     ii, jj = np.nonzero(mar)
     if not len(ii):
         return None
-    d = distancia_km(lat, lon, r.lats[ii], r.lons[jj])
+    d = distancia_km(lat, lon, LATS[ii], LONS[jj])
     n = int(np.argmin(d))
-    if d[n] > (max_km if max_km is not None else 1.5 * r.paso * 111.2):
+    if d[n] > (max_km if max_km is not None else 1.5 * PASO * 111.2):
         return None
     return int(ii[n]), int(jj[n])
 
