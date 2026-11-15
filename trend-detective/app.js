@@ -452,7 +452,13 @@ function renderAnalysis() {
   if (state.sel.type !== "region") { var c = el("button", "ghost small", "Clear selection"); c.type = "button"; c.addEventListener("click", function () { setSel({ type: "region" }); }); head.appendChild(c); }
   root.appendChild(head);
 
-  var left = el("section"); left.appendChild(el("h2", "", "Time series of the ticked variables"));
+  var left = el("section"), seriesHead = el("div", "series-head");
+  seriesHead.appendChild(el("h2", "", "Time series of the ticked variables"));
+  var bandNote = el("p", "note forecast-band-note"), swatch = el("span", "forecast-band-swatch");
+  swatch.setAttribute("aria-hidden", "true"); bandNote.appendChild(swatch);
+  bandNote.appendChild(document.createTextNode("90% prediction interval (forecast uncertainty)"));
+  seriesHead.appendChild(bandNote);
+  left.appendChild(seriesHead);
   root.appendChild(left); shownSorted().forEach(function (id) { miniGraph(left, id, true); });
 
   var right = el("section"); root.appendChild(right);
