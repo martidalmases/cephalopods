@@ -17,7 +17,7 @@ The site has three parts, all reachable from the start page.
 | Part | Question it answers | What you can do |
 |---|---|---|
 | **Variables** | What is changing in the sea, where, and how much? | 15 variables for the **world ocean** or the **Mediterranean**, 1980–2025, as maps stacked by year or by variable, a trend map (hatched where the trend is not significant), and an Analysis screen with time series, correlations between variables and a two-variable correlation map. Click a point or drag a box to get the trend of that place. |
-| **Species** | Where can a species live, and is that changing? | Four tropical fish that entered the Mediterranean through the Suez Canal are always ready (*Pterois miles*, *Lagocephalus sceleratus*, *Siganus luridus*, *Fistularia commersonii*); any other marine species can be searched and is computed on request. Habitat suitability year by year with the sightings, the trend map of suitability, suitable area, centre and poleward limit of the habitat, thermal tolerance, limiting factors, and a map that combines the habitat trend with how much the sea around it has changed. |
+| **Species** | Where can a species live, and is that changing? | Four tropical fish that entered the Mediterranean through the Suez Canal are always ready (2003–2025, four variables) (*Pterois miles*, *Lagocephalus sceleratus*, *Siganus luridus*, *Fistularia commersonii*); any other marine species can be searched and is computed on request. Habitat suitability year by year with the sightings, the trend map of suitability, suitable area, centre and poleward limit of the habitat, thermal tolerance, limiting factors, and a map that combines the habitat trend with how much the sea around it has changed. |
 | **Method** | Why these four species variables? | The article on how 22 candidate variables were reduced to four, with every figure reproducible. |
 
 ## What we found
@@ -36,18 +36,19 @@ per decade, significance by the modified Mann-Kendall test:
 For comparison, the world ocean warmed by +0.17 °C per decade over the same years: the
 Mediterranean is warming about twice as fast.
 
-The four species that arrived through the Suez Canal all gain suitable habitat in the
-Mediterranean, significantly (suitable area, 1980–2025):
+For the four species that arrived through the Suez Canal, suitability is computed with the four
+variables (coldest month, hottest month, unusually hot months, chlorophyll), 2003–2025. Over these
+23 years the total suitable area of the Mediterranean shows no significant trend for any of them:
 
 | Species | Suitable area trend per decade | Adjusted p |
 |---|---|---|
-| *Pterois miles* (devil firefish, lionfish) | +222,756 km² | < 0.001 |
-| *Siganus luridus* (dusky spinefoot) | +168,209 km² | < 0.001 |
-| *Lagocephalus sceleratus* (silver-cheeked toadfish) | +163,415 km² | 0.002 |
-| *Fistularia commersonii* (bluespotted cornetfish) | +134,548 km² | < 0.001 |
+| *Fistularia commersonii* (bluespotted cornetfish) | +183,959 km² | 0.21 |
+| *Pterois miles* (devil firefish, lionfish) | +93,025 km² | 0.18 |
+| *Siganus luridus* (dusky spinefoot) | −68,057 km² | 0.82 |
+| *Lagocephalus sceleratus* (silver-cheeked toadfish) | −111,588 km² | 0.63 |
 
-For *Pterois miles*, the centre of the suitable habitat moves north by 0.30° of latitude per
-decade and its poleward limit by 0.57° per decade (both significant).
+Where the suitable habitat lies does move: for *Pterois miles*, its centre moves north by 1.12° of
+latitude per decade and its poleward limit by 1.67° per decade (both adjusted p < 0.001).
 
 These numbers are computed by the code in this repository from the data below and refresh every
 day; the site always shows the current values.
@@ -151,3 +152,5 @@ repository from the data sources listed above.
 ## Team
 
 NASA Space Apps Challenge 2026, Barcelona. <!-- Team members and roles: to be completed by the team. -->
+
+With thanks to Joan Pino, director of CREAF.
