@@ -37,6 +37,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 
 import almacen
 import especies
@@ -47,9 +48,33 @@ from recolector import FUENTES, VARIABLES_RECOLECTADAS
 
 app = FastAPI(title="Estado del Mediterráneo", version="1.0")
 # Ajustar allow_origins al dominio de la web en producción.
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["GET"], allow_headers=["*"])
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["GET", "POST"], allow_headers=["*"])
 # Los mapas mundiales son JSON grandes y muy repetitivos: comprimidos ocupan ~5 veces menos.
 app.add_middleware(GZipMiddleware, minimum_size=2000)
+
+
+class ForecastRequest(BaseModel):
+    years: list[int]
+    values: list[float | None]
+
+
+@app.post("/api/forecast")
+def forecast(payload: ForecastRequest):
+    """Forecast one selected annual series, on demand, with Darts exponential smoothing."""
+    if not (8 <= len(payload.years) <= 100 and 8 <= len(payload.values) <= 100):
+        raise HTTPException(422, "Forecast input must contain 8–100 years and values.")
+    try:
+        from pronostico import pronosticar
+    except ImportError as e:
+        raise HTTPException(503, "Forecasting requires the Darts package; install backend requirements.") from e
+    try:
+        return pronosticar(payload.years, payload.values)
+    except ValueError as e:
+        raise HTTPException(422, str(e)) from e
+    except ImportError as e:
+        raise HTTPException(503, "Forecasting requires the Darts package; install backend requirements.") from e
+    except Exception as e:
+        raise HTTPException(422, "Darts could not fit a forecast to this series.") from e
 
 
 class Zona:

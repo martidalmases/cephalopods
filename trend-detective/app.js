@@ -8,6 +8,7 @@
 // the region and period. "?datos=ficheros" reads the static files in data/ (pipeline/fetch_real_data.py).
 var DATA_SET = new URLSearchParams(location.search).get("datos") || "mediterraneo-1982";   // first set with sea temperature
 var DATA_DIR = DATA_SET === "ficheros" || DATA_SET === "sintetico" ? "data/" : "/api/trends/" + encodeURIComponent(DATA_SET) + "/";
+var API_ROOT = (new URLSearchParams(location.search).get("api") || "").replace(/\/$/, "");
 var VISIBLE = 4;                 // layers in focus in a stack
 var ALPHA = 0.05;                // significance level
 var ISO = { ux: 1, uy: 0.10, vx: -0.35, vy: 0.30 };   // screen vectors of one grid step east / south
@@ -30,7 +31,7 @@ var state = {
 var view = { offTime: 0, offVars: 0, focusT: 0, focusPos: 0, zoom: 1, cx: 0, cy: 0 };   // animated / continuous values
 var $ = function (id) { return document.getElementById(id); };
 var canvas = $("view"), tip = $("tip");
-var C = {}, geom = null, imgCache = {}, seriesCache = {}, drag = null, pan = null;
+var C = {}, geom = null, imgCache = {}, seriesCache = {}, forecastCache = {}, drag = null, pan = null;
 var reduced = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 /* ---------------- loading ---------------- */
@@ -352,26 +353,57 @@ function tick(now) {
 }
 
 /* ---------------- graphs ---------------- */
-function drawSeries(cv, s, info, yi, compact) {
+function drawSeries(cv, s, info, yi, compact, forecast) {
   var f = fitCanvas(cv), g = f.g, yrs = meta.years, n = yrs.length; if (f.w < 60) return;
-  var L = 50, R = 8, T = compact ? 6 : 12, B = compact ? 16 : 24, pv = s.v.filter(has), lo = pv.length ? Math.min.apply(null, pv) : 0, hi = pv.length ? Math.max.apply(null, pv) : 1, padY = (hi - lo) * 0.12 || 1;
-  lo -= padY; hi += padY;
-  var X = function (k) { return L + (f.w - L - R) * k / (n - 1); }, Y = function (v) { return T + (f.h - T - B) * (hi - v) / (hi - lo); };
+  var L = 50, R = 8, T = compact ? 6 : 12, B = compact ? 16 : 24;
+  var pv = s.v.filter(has); if (forecast) pv = pv.concat(forecast.lower, forecast.upper, forecast.median);
+  var lo = pv.length ? Math.min.apply(null, pv) : 0, hi = pv.length ? Math.max.apply(null, pv) : 1, padY = (hi - lo) * 0.12 || 1; lo -= padY; hi += padY;
+  var firstYear = yrs[0], lastYear = forecast ? forecast.years[forecast.years.length - 1] : yrs[n - 1];
+  var XYear = function (year) { return L + (f.w - L - R) * (year - firstYear) / (lastYear - firstYear || 1); };
+  var X = function (k) { return forecast ? XYear(yrs[k]) : L + (f.w - L - R) * k / (n - 1); };
+  var Y = function (v) { return T + (f.h - T - B) * (hi - v) / (hi - lo); };
   var rows = compact ? 2 : 3;
   for (var q = 0; q <= rows; q++) { var val = lo + (hi - lo) * q / rows; g.beginPath(); g.moveTo(L, Y(val)); g.lineTo(f.w - R, Y(val)); g.strokeStyle = C.rule; g.lineWidth = 0.8; g.stroke(); text(g, num(val, Math.min(info.decimals, 3)), L - 6, Y(val), { align: "right", size: 10 }); }
-  [0, Math.floor((n - 1) / 2), n - 1].forEach(function (k) { text(g, String(yrs[k]), X(k), f.h - 7, { align: k === 0 ? "left" : (k === n - 1 ? "right" : "center"), size: 10 }); });
+  if (forecast) [firstYear, forecast.last_observed_year, lastYear].forEach(function (year, k) { text(g, String(year), XYear(year), f.h - 7, { align: k === 0 ? "left" : (k === 2 ? "right" : "center"), size: 10 }); });
+  else [0, Math.floor((n - 1) / 2), n - 1].forEach(function (k) { text(g, String(yrs[k]), X(k), f.h - 7, { align: k === 0 ? "left" : (k === n - 1 ? "right" : "center"), size: 10 }); });
   if (yi >= 0) { g.beginPath(); g.moveTo(X(yi), T); g.lineTo(X(yi), f.h - B); g.strokeStyle = C["ink-2"]; g.lineWidth = 1; g.setLineDash([2, 3]); g.stroke(); g.setLineDash([]); }
   g.beginPath(); s.v.forEach(function (v, k) { if (!has(v)) return; if (k && has(s.v[k - 1])) g.lineTo(X(k), Y(v)); else g.moveTo(X(k), Y(v)); }); g.strokeStyle = C.ink; g.lineWidth = compact ? 1.5 : 2; g.lineJoin = "round"; g.stroke();
   s.v.forEach(function (v, k) { if (!has(v)) return; g.beginPath(); g.arc(X(k), Y(v), k === yi ? 5 : (compact ? 1.8 : 2.5), 0, 7); g.fillStyle = C.ink; g.fill(); if (k === yi) { g.strokeStyle = C.sheet; g.lineWidth = 2; g.stroke(); } });
   var fit = ols(s.v), perYear = s.slope / 10;
-  if (!has(perYear) || !has(fit.mean)) return;
-  g.beginPath(); g.moveTo(X(0), Y(fit.mean - perYear * fit.mid)); g.lineTo(X(n - 1), Y(fit.mean + perYear * (n - 1 - fit.mid))); g.strokeStyle = C.probe; g.lineWidth = 2; g.setLineDash([6, 4]); g.stroke(); g.setLineDash([]);
+  if (has(perYear) && has(fit.mean)) { g.beginPath(); g.moveTo(X(0), Y(fit.mean - perYear * fit.mid)); g.lineTo(X(n - 1), Y(fit.mean + perYear * (n - 1 - fit.mid))); g.strokeStyle = C.probe; g.lineWidth = 2; g.setLineDash([6, 4]); g.stroke(); g.setLineDash([]); }
+  if (forecast) {
+    g.beginPath(); forecast.years.forEach(function (year, i) { if (!i) g.moveTo(XYear(year), Y(forecast.upper[i])); else g.lineTo(XYear(year), Y(forecast.upper[i])); });
+    for (var j = forecast.years.length - 1; j >= 0; j--) g.lineTo(XYear(forecast.years[j]), Y(forecast.lower[j]));
+    g.closePath(); g.globalAlpha = 0.16; g.fillStyle = C.probe; g.fill(); g.globalAlpha = 1;
+    var lastIndex = -1; for (var h = s.v.length - 1; h >= 0; h--) if (has(s.v[h])) { lastIndex = h; break; }
+    g.beginPath(); if (lastIndex >= 0) g.moveTo(X(lastIndex), Y(s.v[lastIndex]));
+    forecast.years.forEach(function (year, i) { if (lastIndex < 0 && !i) g.moveTo(XYear(year), Y(forecast.median[i])); else g.lineTo(XYear(year), Y(forecast.median[i])); });
+    g.strokeStyle = C.probe; g.lineWidth = 2; g.setLineDash([3, 3]); g.stroke(); g.setLineDash([]);
+    g.beginPath(); g.moveTo(XYear(forecast.years[0]), T); g.lineTo(XYear(forecast.years[0]), f.h - B); g.strokeStyle = C.probe; g.lineWidth = 1; g.setLineDash([2, 3]); g.stroke(); g.setLineDash([]);
+  }
+}
+function forecastFor(id, s) {
+  var key = id + "|" + JSON.stringify(s.v);
+  if (!forecastCache[key]) forecastCache[key] = fetch(API_ROOT + "/api/forecast", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ years: meta.years, values: s.v }) })
+    .then(function (r) { return r.json().then(function (body) { if (!r.ok) throw new Error(body.detail || "Forecast unavailable"); return body; }); });
+  return forecastCache[key];
 }
 function miniGraph(parent, id, detail) {     // title + small graph (+ numbers line when detail is true)
-  var d = vars[id], s = seriesFor(id), div = el("div", "mini"), cv = document.createElement("canvas");
+  var d = vars[id], s = seriesFor(id), div = el("div", "mini"), cv = document.createElement("canvas"), note = null;
   div.appendChild(el("h3", "", d.info.name + (d.info.unit ? " (" + d.info.unit + ")" : ""))); div.appendChild(cv);
-  if (detail) div.appendChild(el("p", "", (s.slope > 0 ? "↑ " : "↓ ") + rate(s, d.info) + " · " + (s.p < ALPHA ? "significant" : "not significant") + " (" + pText(s.p) + ")"));
+  if (detail) {
+    div.appendChild(el("p", "", (s.slope > 0 ? "↑ " : "↓ ") + rate(s, d.info) + " · " + (s.p < ALPHA ? "significant" : "not significant") + " (" + pText(s.p) + ")"));
+    note = el("p", "forecast-note", "Calculating 5-year forecast…"); div.appendChild(note);
+  }
   parent.appendChild(div); drawSeries(cv, s, d.info, -1, true);
+  if (detail) forecastFor(id, s).then(function (fc) {
+    if (!div.isConnected) return;
+    drawSeries(cv, s, d.info, -1, true, fc);
+    note.textContent = "Damped exponential smoothing · 90% interval · " + fc.years[0] + "–" + fc.years[fc.years.length - 1] + (fc.interpolated_years.length ? " · interpolated " + fc.interpolated_years.join(", ") : "");
+  }).catch(function (error) {
+    if (!div.isConnected) return;
+    note.textContent = error instanceof TypeError || error instanceof SyntaxError ? "Forecast unavailable; connect the Python backend." : (error.message || "Forecast unavailable.");
+  });
 }
 
 /* ---------------- right panel (visualisation screen) ---------------- */
