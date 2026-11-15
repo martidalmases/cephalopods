@@ -48,7 +48,7 @@ function deg(v, pos, neg) { return Math.abs(v).toFixed(2) + "°" + (v >= 0 ? pos
 
 // screen: "viz" | "analysis"; mode: "time" (stack of years) | "species" (stack of species) | "trend" | "bi";
 // focus: one stack layer opened flat; layer: "temp" | "chl" (variables in the suitability).
-var state = { page: "trends", screen: "viz", mode: "time", focus: false, layer: "temp", species: null, year: null, data: null, list: [] };
+var state = { page: "trends", screen: "viz", mode: "time", focus: false, layer: "chl", species: null, year: null, data: null, list: [] };
 
 /* ---------------- DOM: page switch, button groups, sidebar, main view, panel ---------------- */
 var options = document.querySelector(".options");
@@ -71,7 +71,7 @@ function seg(id, label, items, on) {
 function press(g, v) { g.querySelectorAll("button").forEach(function (b) { b.setAttribute("aria-pressed", String(b.dataset.v === v)); }); }
 var spScreens = seg("sp-screens", "Screen", [["viz", "Visualisation"], ["analysis", "Analysis"]], setScreen);
 var spModes = seg("sp-modes", "Visualisation options", [["time", "Stack by time"], ["species", "Stack by species"],
-  ["trend", "Trend map"], ["bi", "Now × trend", "Suitability of the last years and its trend on one map"]], setMode);
+  ["trend", "Trend map"]], setMode);
 function setScreen(v) { state.screen = v; state.focus = false; setPage(state.page); }
 function setMode(v) { state.mode = v; state.focus = false; refresh(); }
 
@@ -86,7 +86,7 @@ side.innerHTML =
   '<ul id="sp-suggest" role="listbox" hidden></ul></div>' +
   '<p class="fact dim">Names and record counts from OBIS. Computed on first request, then stored.</p></section>' +
   '<section id="sp-layer-box"><h2>Variables in the map</h2><span class="seg small" id="sp-layer" role="group" aria-label="Variables in the map">' +
-  '<button type="button" data-layer="temp" aria-pressed="true">Temperature</button><button type="button" data-layer="chl" aria-pressed="false">+ chlorophyll</button></span>' +
+  '<button type="button" data-layer="chl" aria-pressed="true">All four, 2003–</button><button type="button" data-layer="temp" aria-pressed="false">Temperature, 1980–</button></span>' +
   '<p class="fact dim" id="sp-layer-note">&nbsp;</p></section>' +
   '<section><h2>What is this?</h2><p class="fact dim">Every sighting of the species in the world (OBIS, since 1980) is matched to the sea conditions of its place and year. ' +
   'That gives its environmental profile: the range of conditions where it lives. Habitat suitability (0 to 1) says how close each place of the Mediterranean, each year, ' +
@@ -101,9 +101,9 @@ row.innerHTML =
   '<div class="stage"><canvas id="sp-map" aria-label="Habitat suitability map of the Mediterranean"></canvas><div class="sp-wait" id="sp-status" role="status" aria-live="polite" hidden><div class="sp-card">' +
   '<p id="sp-status-title"></p><p class="fact dim" id="sp-status-text"></p><div class="sp-bar"><i></i></div><p class="sp-time" id="sp-status-time"></p></div></div></div>' +
   '<div class="stackbar"><button type="button" class="ghost" id="sp-back" hidden>&larr; Back to stack</button>' +
-  '<button type="button" class="round" id="sp-prev" aria-label="Previous year">&#9664;</button>' +
+  '<button type="button" class="round" id="sp-next" aria-label="Newer year">&#9650;</button>' +
   '<select id="sp-year" class="sp-select" aria-label="Year"></select>' +
-  '<button type="button" class="round" id="sp-next" aria-label="Next year">&#9654;</button>' +
+  '<button type="button" class="round" id="sp-prev" aria-label="Older year">&#9660;</button>' +
   '<span class="fact dim" id="sp-hint"></span></div></main>' +
   '<aside class="panel" aria-label="Species details"><div class="sp-panel">' +
   '<div><div class="panel-head"><h2 id="sp-title">&nbsp;</h2></div><p class="fact dim" id="sp-sub">&nbsp;</p></div>' +
@@ -275,7 +275,6 @@ function panel() {
   $("sp-title").innerHTML = "<i>" + d.nombre + "</i>";
   $("sp-sub").textContent = [commonName(d), d.presencias.toLocaleString("en-GB") + " presences (cell and year) from " + d.registros.toLocaleString("en-GB") + " OBIS records",
     "seen from " + deg(d.latitud_presencias[0], "N", "S") + " to " + deg(d.latitud_presencias[1], "N", "S"), "updated " + new Date(d.calculado).toLocaleDateString()].filter(Boolean).join(" · ");
-  $("sp-period").textContent = "Yearly results " + yrs[0] + " to " + yrs[yrs.length - 1] + " · " + d.region.cell_deg + "° cells";
 
   $("sp-area").textContent = verdict(ind.area, 0);
   var mid = yrs[Math.floor(yrs.length / 2)];
@@ -328,7 +327,7 @@ function bars() {
   years.forEach(function (y, i) {
     var v = a.serie[i] || 0, b = el("div"); b.style.height = Math.max(2, 100 * v / max) + "%";
     b.title = y + ": " + Math.round(v).toLocaleString("en-GB") + " km² suitable (" + a.pct_del_mar[i] + " % of the sea)"; if (y === state.year && yearShown) b.className = "on";
-    b.addEventListener("click", function () { state.screen = "viz"; state.mode = "time"; state.layer = "temp"; state.focus = true; spModes.hidden = false; setYear(y); });
+    b.addEventListener("click", function () { state.screen = "viz"; state.mode = "time"; if (layerYears(state.data).indexOf(y) < 0) state.layer = "temp"; state.focus = true; spModes.hidden = false; setYear(y); });
     box.appendChild(b);
   });
 }
@@ -417,6 +416,7 @@ function refresh() {
   sel.innerHTML = years.slice().reverse().map(function (y) { return '<option value="' + y + '">' + y + " · seen in " + (d.seenYear[y] || 0) + " cells</option>"; }).join("");
   sel.value = state.year;
   document.querySelectorAll("#sp-layer button").forEach(function (b) { b.setAttribute("aria-pressed", String(b.dataset.layer === state.layer)); });
+  $("sp-period").textContent = "Yearly results " + years[0] + " to " + years[years.length - 1] + " · " + d.region.cell_deg + "° cells";
   $("sp-layer-note").textContent = state.layer === "chl" ? "Temperature and chlorophyll together, " + years[0] + " to " + years[years.length - 1] + ". Trend maps always use the temperature index."
     : "Coldest month, hottest month and unusually hot months, " + d.anios[0] + " to " + d.anios[d.anios.length - 1] + ".";
   var L = $("sp-legend"), land = '<span><span class="sw land"></span>land</span>';
@@ -440,7 +440,7 @@ function refresh() {
   $("sp-back").hidden = kind !== "suit";
   ["sp-prev", "sp-year", "sp-next"].forEach(function (id) { $(id).hidden = !yearBar; });
   $("sp-prev").disabled = state.year <= years[0]; $("sp-next").disabled = state.year >= years[years.length - 1];
-  $("sp-hint").textContent = kind ? "Point at the map to read a place." : "Click a map to open it.";
+  $("sp-hint").textContent = kind ? "Point at the map to read a place." : "Scroll to move. Click a map to open it.";
   bars(); draw();
 }
 
@@ -588,6 +588,18 @@ canvas.addEventListener("mousemove", function (ev) {
   tip.textContent = t.split(" · ").slice(0, 2).join(" · "); tip.style.left = Math.min(ev.clientX, window.innerWidth - 360) + "px"; tip.style.top = ev.clientY + "px"; tip.style.opacity = 1;
 });
 canvas.addEventListener("mouseleave", function () { tip.style.opacity = 0; });
+var wheelSum = 0;
+canvas.addEventListener("wheel", function (ev) {
+  if (!state.data || flatKind()) return;
+  ev.preventDefault();
+  wheelSum += ev.deltaMode === 1 ? ev.deltaY * 32 : ev.deltaY;
+  if (Math.abs(wheelSum) < 80) return;
+  var dir = wheelSum > 0 ? 1 : -1; wheelSum = 0;              // down = older year / next species (down the stack)
+  if (state.mode === "species") {
+    var L = state.list, j = L.map(function (sp) { return sp.nombre; }).indexOf(state.species) + dir;
+    if (j >= 0 && j < L.length) show(L[j].nombre);
+  } else setYear(state.year - dir);
+}, { passive: false });
 
 /* ---------------- search, year, layer, start ---------------- */
 // Autocomplete: as you type, the backend asks OBIS for species names (most recorded first).

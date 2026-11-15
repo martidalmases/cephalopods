@@ -43,6 +43,7 @@ loadSet("/api/trends/mediterraneo-1982/").catch(function () { return loadSet("da
   var el = $("fact-trend"), t0 = null, dur = reduced ? 1 : 1100;
   function count(ts) { if (!t0) t0 = ts; var q = Math.min(1, (ts - t0) / dur), e = 1 - Math.pow(1 - q, 3); el.textContent = (slope > 0 ? "+" : "−") + (Math.abs(slope) * e).toFixed(2) + " °C"; if (q < 1) requestAnimationFrame(count); }
   requestAnimationFrame(count);
+  setTimeout(function () { el.textContent = (slope > 0 ? "+" : "−") + Math.abs(slope).toFixed(2) + " °C"; }, dur + 200);   // final value even without animation frames
   $("fact-trend-text").textContent = "per decade at the surface of the " + meta.region.name + ", " + years[0] + "–" + years[years.length - 1] + (p < 0.05 ? " (significant)" : "");
 }).catch(function () { $("stripes-read").textContent = "The data are not available right now."; });
 
