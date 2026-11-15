@@ -6,7 +6,7 @@
 
 // Real data from the backend (/api/trends/<set>/, made by backend/exportar_trends.py); "?datos=<set>" picks
 // the region and period. "?datos=ficheros" reads the static files in data/ (pipeline/fetch_real_data.py).
-var DATA_SET = new URLSearchParams(location.search).get("datos") || "mediterraneo-1980";
+var DATA_SET = new URLSearchParams(location.search).get("datos") || "mediterraneo-1982";   // first set with sea temperature
 var DATA_DIR = DATA_SET === "ficheros" || DATA_SET === "sintetico" ? "data/" : "/api/trends/" + encodeURIComponent(DATA_SET) + "/";
 var API_ROOT = (new URLSearchParams(location.search).get("api") || "").replace(/\/$/, "");
 var VISIBLE = 4;                 // layers in focus in a stack
@@ -65,8 +65,17 @@ function load() {
     $("loading").hidden = true; ready = true;
     buildSidebar(); render();
   }).catch(function (e) {
-    $("loading").textContent = "Could not load the data files. Serve this folder over HTTP (python3 -m http.server) and reload.";
     console.error(e);
+    // The default backend set may not exist (e.g. while a source has gaps): open the first set with
+    // sea temperature, or the first one, from the backend's list.
+    if (!new URLSearchParams(location.search).get("datos") && DATA_DIR !== "data/") {
+      return getJSON(API_ROOT + "/api/trends").then(function (sets) {
+        var pick = sets.filter(function (d) { return d.id.indexOf("mediterraneo") === 0 && d.variables.indexOf("sst") >= 0; })[0] || sets[0];
+        if (!pick) throw e;
+        var q = new URLSearchParams(location.search); q.set("datos", pick.id); location.search = q.toString();
+      }).catch(function () { $("loading").textContent = "Could not load the data. Please try again later."; });
+    }
+    $("loading").textContent = "Could not load the data files. Serve this folder over HTTP (python3 -m http.server) and reload.";
   });
 }
 

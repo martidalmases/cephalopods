@@ -1,15 +1,18 @@
 """
-Exporta los datos REALES (ambiente.zarr) al formato de la web Trend Detective
+Exporta los datos REALES (almacenes de almacen.py) al formato de la web Trend Detective
 (trend-detective/README.md, «Data format»): por cada conjunto, un meta.json y un JSON por
 variable con los valores anuales de cada celda de mar, su tendencia y la media de la región.
 
 La web exige que todas las variables de un conjunto tengan los mismos años y sin huecos, y
-las fuentes empiezan en años distintos (MERRA-2 1980, MODIS 2003, SMAP 2015). Por eso hay un
-conjunto por región y por año de inicio, con las variables que cubren todo ese periodo:
+las fuentes empiezan en años distintos (MERRA-2 1980, OISST 1982, MODIS 2003, SMAP 2015).
+Por eso hay un conjunto por región y por año de inicio, con las variables que cubren todo
+ese periodo. Todo se calcula en la rejilla FINA (0,5°); las variables de la BASE (1°) se
+repiten en sus 4 celdas finas.
 
     DATOS_DIR/trends/
       index.json                         lista de conjuntos (la usa el selector de la web)
-      mediterraneo-1980/meta.json ...    Mediterráneo, celdas de 1°, 1980-último año completo
+      mediterraneo-1980/meta.json ...    Mediterráneo, celdas de 0,5°, 1980-último año completo
+      mediterraneo-1982/ ...             + temperatura del mar, mín./máx. anual y olas de calor
       mediterraneo-2003/ ...             + clorofila y fluorescencia
       mediterraneo-2015/ ...             + salinidad
       mundo-1980/ ...                    océano mundial, celdas de 2° (para que pese poco)
@@ -31,10 +34,10 @@ from datetime import date
 from pathlib import Path
 
 import numpy as np
-import zarr
 from scipy import stats
 
 import almacen
+import especies
 
 log = logging.getLogger("exportar_trends")
 
@@ -44,9 +47,18 @@ ANIOS_MINIMOS = 8            # un conjunto necesita al menos estos años
 
 # Variables de la web: id de la web -> variable del recolector, con textos en inglés (la web lo está).
 VARIABLES = [
-    dict(id="sst", variable="temperatura", name="Sea surface temperature", unit="°C", decimals=2,
-         definition="How warm the surface is (MERRA-2 skin temperature; over the sea, the sea surface).",
-         source="NASA MERRA-2 monthly (M2TMNXSLV TS)"),
+    dict(id="sst", variable="sst", name="Sea surface temperature", unit="°C", decimals=2,
+         definition="How warm the top layer of the sea is (yearly mean).",
+         source="NOAA OISST v2.1 monthly (0.25°)"),
+    dict(id="sst_min", variable="sst_winter_min", name="Winter minimum sea temperature", unit="°C", decimals=2,
+         definition="The temperature of the coldest month of the year. Many animals cannot survive water colder than their limit.",
+         source="NOAA OISST v2.1 monthly (coldest monthly mean of each year)"),
+    dict(id="sst_max", variable="sst_summer_max", name="Summer maximum sea temperature", unit="°C", decimals=2,
+         definition="The temperature of the warmest month of the year. Heat stress starts above each species' limit.",
+         source="NOAA OISST v2.1 monthly (warmest monthly mean of each year)"),
+    dict(id="mhw", variable="mhw_months", name="Marine heatwave months", unit="months", decimals=1,
+         definition="Months of the year warmer than 9 in 10 of the same month in 1982–2011: a monthly version of a marine heatwave.",
+         source="NOAA OISST v2.1 monthly (above the 1982–2011 90th percentile of that month)"),
     dict(id="chl", variable="fitoplancton", name="Chlorophyll-a", unit="mg/m³", decimals=3,
          definition="The green pigment in microscopic algae. More chlorophyll means more algae in the water.",
          source="MODIS Aqua monthly (NOAA CoastWatch ERDDAP)"),
@@ -89,20 +101,21 @@ def _mascara_mediterraneo(lat: np.ndarray, lon: np.ndarray) -> np.ndarray:
     return ~((lo < -5.5) | ((la > 43.0) & (lo < 0.0)) | ((la > 40.0) & (lo > 26.5)))
 
 
-# Regiones: caja (bordes de celda) y factor de agregación sobre la rejilla de almacen.py.
+# Regiones: caja (bordes de celda) y factor de agregación sobre la rejilla FINA (0,5°).
+RF = almacen.FINA
 REGIONES = {
     "mediterraneo": {"name": "Mediterranean Sea", "lat": (30, 46), "lon": (-6, 37), "factor": 1,
                      "mascara": _mascara_mediterraneo},
-    "mundo": {"name": "World ocean", "lat": (-78, 84), "lon": (-180, 180), "factor": 2, "mascara": None},
+    "mundo": {"name": "World ocean", "lat": (-78, 84), "lon": (-180, 180), "factor": 4, "mascara": None},
 }
 
 
 def _recortar(campo: np.ndarray, region: dict) -> np.ndarray:
-    """(años, NLAT, NLON) -> (años, ny, nx) de la región, fila 0 = norte, celdas agregadas por `factor`."""
+    """(años, lat, lon) FINA -> (años, ny, nx) de la región, fila 0 = norte, celdas agregadas por `factor`."""
     f = region["factor"]
-    i0, j0 = almacen.indices_celda(region["lat"][0] + 1e-6, region["lon"][0] + 1e-6)
-    ny = int(round((region["lat"][1] - region["lat"][0]) / almacen.PASO))
-    nx = int(round((region["lon"][1] - region["lon"][0]) / almacen.PASO))
+    i0, j0 = almacen.indices_celda(region["lat"][0] + 1e-6, region["lon"][0] + 1e-6, RF)
+    ny = int(round((region["lat"][1] - region["lat"][0]) / RF.paso))
+    nx = int(round((region["lon"][1] - region["lon"][0]) / RF.paso))
     sub = campo[:, int(i0):int(i0) + ny, int(j0):int(j0) + nx]
     n = sub.shape[0]
     bloques = sub.reshape(n, ny // f, f, nx // f, f)
@@ -151,21 +164,39 @@ def _escribir_variable(carpeta: Path, var: dict, values: np.ndarray, lat_celdas:
 
 
 def exportar() -> list[dict]:
-    if not almacen.RUTA_AMBIENTE.exists():
+    g_base, g_fino = almacen.abrir_grupo(almacen.BASE), almacen.abrir_grupo(almacen.FINA)
+    if g_base is None and g_fino is None:
         raise RuntimeError("No hay datos ambientales: ejecuta antes el recolector")
-    g = zarr.open_group(almacen.RUTA_AMBIENTE, mode="r", use_consolidated=False)
-    mar = g["mar"][:]
+    mar = especies._mar()
     anios = np.arange(almacen.ORIGEN.year, date.today().year)      # hasta el último año completo
-    disponibles = [v for v in VARIABLES if v["variable"] in g and g[v["variable"]].attrs.get("hasta")]
+
+    def con_datos(g, v):
+        return g is not None and v in g and bool(g[v].attrs.get("hasta"))
+
+    # Extremos de la temperatura del mar (una sola pasada para los tres).
+    extremos = especies.extremos_sst(g_fino, anios) if con_datos(g_fino, "sst") else {}
+
+    def anual_de(v: str) -> np.ndarray | None:
+        """Serie anual en la rejilla FINA (las variables de la BASE se repiten en 2 x 2 celdas)."""
+        if v in extremos:
+            return extremos[v]
+        if con_datos(g_fino, v):
+            return almacen.medias_anuales(g_fino, v, anios, MESES_MINIMOS)
+        if con_datos(g_base, v):
+            return almacen.ampliar(almacen.medias_anuales(g_base, v, anios, MESES_MINIMOS))
+        return None
 
     # Medias anuales recortadas a cada región, variable a variable (poca RAM).
     por_region: dict[str, dict[str, np.ndarray]] = {r: {} for r in REGIONES}
-    for v in disponibles:
-        anual = almacen.medias_anuales(g, v["variable"], anios, MESES_MINIMOS)
+    for v in VARIABLES:
+        anual = anual_de(v["variable"])
+        if anual is None:
+            continue
         anual[:, ~mar] = np.nan
         for r, region in REGIONES.items():
             por_region[r][v["id"]] = _recortar(anual, region)
         del anual
+    extremos.clear()
 
     tmp = DIR_TRENDS.with_name("trends.tmp")
     shutil.rmtree(tmp, ignore_errors=True)
@@ -173,7 +204,7 @@ def exportar() -> list[dict]:
     indice = []
     for r, region in REGIONES.items():
         datos = por_region[r]
-        f, paso = region["factor"], almacen.PASO * region["factor"]
+        f, paso = region["factor"], RF.paso * region["factor"]
         ny, nx = next(iter(datos.values())).shape[1:] if datos else (0, 0)
         lat_c = region["lat"][1] - paso * (np.arange(ny) + 0.5)
         lon_c = region["lon"][0] + paso * (np.arange(nx) + 0.5)

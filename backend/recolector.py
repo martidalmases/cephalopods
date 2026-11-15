@@ -1,6 +1,6 @@
 """
-Recolector periódico: guarda la MEDIA MENSUAL de cada variable en la rejilla MUNDIAL de
-almacen.py (1° por defecto), desde enero de 1980 hasta el último mes publicado.
+Recolector periódico: guarda la MEDIA MENSUAL de cada variable en las rejillas MUNDIALES de
+almacen.py (BASE de 1° y FINA de 0,5°), desde enero de 1980 hasta el último mes publicado.
 Pensado para ejecutarse cada día con un temporizador de systemd o cron. En cada ejecución
 pide sólo los meses que faltan en todo el periodo (también los huecos de ejecuciones que
 fallaron) y repasa los últimos, que las fuentes NRT corrigen.
@@ -11,7 +11,10 @@ Fuentes (todas descargan el planeta entero de un mes en una sola petición):
     diferencias mar-aire.
     Su fracción de océano (M2C0NXASM) da la máscara de mar.
   * SMAP mensual (RSS v6, PO.DAAC), 2015-hoy, por OPeNDAP de la NASA: salinidad.
-  * MODIS Aqua mensual por NOAA CoastWatch ERDDAP, 2003-hoy: clorofila y fluorescencia.
+  * MODIS Aqua mensual por NOAA CoastWatch ERDDAP, 2003-hoy: clorofila (rejilla FINA) y
+    fluorescencia.
+  * NOAA OISST v2.1 mensual (0,25°), septiembre de 1981-hoy, por OPeNDAP de NOAA PSL:
+    temperatura del mar (rejilla FINA). Sus celdas con dato forman la máscara de mar FINA.
 Las fuentes de la NASA requieren EARTHDATA_TOKEN. Antes de las fechas de inicio de cada
 satélite no hay datos: esos meses quedan vacíos.
 
@@ -29,6 +32,7 @@ from __future__ import annotations
 import argparse
 import io
 import logging
+import re
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -43,7 +47,7 @@ from datos_mediterraneo import TIMEOUT_ERDDAP, VARIABLES, ErrorDatos, _humedad_s
 
 log = logging.getLogger("recolector")
 
-VARIABLES_RECOLECTADAS = ["temperatura", "salinidad", "fitoplancton", "fluorescencia", "aerosoles",
+VARIABLES_RECOLECTADAS = ["sst", "temperatura", "salinidad", "fitoplancton", "fluorescencia", "aerosoles",
                           "evaporacion", "precipitacion", "calor_latente", "calor_sensible", "viento_velocidad",
                           "viento_direccion", "dif_temp_mar_aire", "dif_humedad_mar_aire"]
 SOLAPE_MESES = 2               # se vuelven a pedir los últimos meses (productos NRT que se corrigen)
@@ -88,9 +92,32 @@ SMAP = {"concepto": "C2832226365-POCLOUD", "variable": "sss_smap", "desde": "201
 _SMAP_LATS = -89.875 + 0.25 * np.arange(720)
 _SMAP_LONS = 0.125 + 0.25 * np.arange(1440)
 
-# ERDDAP (MODIS Aqua 4 km mensual): tramos de datasets por variable. Se toma un píxel de
-# cada PASO_MODIS en cada eje (16 por celda de 1°) y se promedian por celda.
-PASO_MODIS = max(1, int(round(almacen.PASO * 24 / 4)))
+# Variables que se guardan en la rejilla FINA (el resto, en la BASE).
+VARIABLES_FINAS = {"sst", "fitoplancton"}
+
+
+def rejilla(variable: str) -> almacen.Rejilla:
+    return almacen.FINA if variable in VARIABLES_FINAS else almacen.BASE
+
+
+# NOAA OISST v2.1 mensual: 0,25°, lat -89.875..89.875, lon 0.125..359.875, desde 1981-09.
+OISST = {"url": "https://psl.noaa.gov/thredds/dodsC/Datasets/noaa.oisst.v2.highres/sst.mon.mean.nc",
+         "desde": "1981-09"}
+_OISST_LATS = -89.875 + 0.25 * np.arange(720)
+_OISST_LONS = 0.125 + 0.25 * np.arange(1440)
+
+
+def paso_modis(r: almacen.Rejilla) -> int:
+    """
+    Salto entre píxeles de MODIS (4 km = 1/24°): uno de cada 6, es decir, 16 píxeles por celda
+    de 1° y 4 por celda de 0,5°. Así cada mes mundial pesa ~4 MB en cualquier rejilla (el
+    servidor de NOAA es lento; con 16 píxeles por celda de 0,5° serían ~16 MB por mes).
+    """
+    return 6
+
+
+# ERDDAP (MODIS Aqua 4 km mensual): tramos de datasets por variable. Los píxeles tomados se
+# promedian por celda de la rejilla de la variable.
 ERDDAP_FUENTES = {
     "fitoplancton": [
         {"servidor": "https://coastwatch.pfeg.noaa.gov/erddap", "dataset": "erdMH1chlamday", "variable": "chlorophyll",
@@ -108,6 +135,7 @@ ERDDAP_FUENTES = {
 
 # Descripción de la fuente de cada variable (para la API).
 FUENTES = {
+    "sst": {"fuente": "NOAA OISST v2.1 mensual (NOAA PSL, OPeNDAP)", "desde": OISST["desde"]},
     **{v: {"fuente": "NASA MERRA-2 mensual (OPeNDAP)", "desde": "1980-01"} for v in MERRA_VARIABLES},
     "salinidad": {"fuente": "NASA SMAP RSS v6 mensual (PO.DAAC, OPeNDAP)", "desde": SMAP["desde"]},
     **{v: {"fuente": "NOAA CoastWatch ERDDAP, MODIS Aqua mensual: " + " + ".join(f["dataset"] for f in fs),
@@ -133,8 +161,8 @@ def _get(url: str, intentos: int = 3, **kwargs) -> requests.Response:
     return r
 
 
-def _bloque_vacio(n_meses: int) -> np.ndarray:
-    return np.full((n_meses, almacen.NLAT, almacen.NLON), np.nan, dtype="float32")
+def _bloque_vacio(n_meses: int, r: almacen.Rejilla = almacen.BASE) -> np.ndarray:
+    return np.full((n_meses, r.nlat, r.nlon), np.nan, dtype="float32")
 
 
 def meses_pendientes(g, variables: list[str], inicio: date, fin: date, forzar: date | None) -> list[date]:
@@ -165,12 +193,13 @@ def _escribir_por_anios(g, resultados: dict[str, dict[date, np.ndarray]]) -> dic
     Escribe {variable: {mes: mapa (lat, lon)}} en bloques de un año. Sólo se guardan las
     celdas de mar: la tierra (un tercio del planeta en MERRA-2) no se usa y ocuparía disco.
     """
-    tierra = ~g["mar"][:]
+    mar = g["mar"][:]
+    tierra = ~mar if mar.any() else np.zeros_like(mar)   # sin máscara todavía: no se recorta nada
     totales = {}
     for v, por_mes in resultados.items():
         totales[v] = 0
         for anio in sorted({m.year for m in por_mes}):
-            bloque = _bloque_vacio(12)
+            bloque = np.full((12, *mar.shape), np.nan, dtype="float32")
             for m, mapa in por_mes.items():
                 if m.year == anio:
                     bloque[m.month - 1] = mapa
@@ -317,22 +346,24 @@ def _ultimo_mes_erddap(f: dict) -> date:
     return _mes(r.json()["table"]["rows"][0][0])
 
 
-def _mes_erddap(f: dict, mes: date) -> np.ndarray:
-    """Mapa mundial de un mes en NetCDF (binario, ~4 MB), promediado a la rejilla."""
+def _mes_erddap(f: dict, mes: date, rj: almacen.Rejilla) -> np.ndarray:
+    """Mapa mundial de un mes en NetCDF (binario), promediado a la rejilla `rj`."""
     fin = date.fromordinal(almacen.sumar_meses(mes, 1).toordinal() - 1)
+    p = paso_modis(rj)
     url = (f"{f['servidor']}/griddap/{f['dataset']}.nc?{f['variable']}"
-           f"[({mes}T00:00:00Z):1:({fin}T23:59:59Z)][0:{PASO_MODIS}:last][0:{PASO_MODIS}:last]")
+           f"[({mes}T00:00:00Z):1:({fin}T23:59:59Z)][0:{p}:last][0:{p}:last]")
     r = _get(url, timeout=600)
     if r.status_code == 404 and "no matching results" in r.text:
-        return _bloque_vacio(1)[0]
+        return _bloque_vacio(1, rj)[0]
     if r.status_code != 200:
         raise ErrorDatos(f"ERDDAP {f['dataset']} HTTP {r.status_code}: {r.text[:200]}")
     with xr.open_dataset(io.BytesIO(r.content), engine="scipy") as ds:
         datos = ds[f["variable"]].mean("time").values.astype(float)   # un compuesto por mes
-        return almacen.a_rejilla(datos, ds["latitude"].values, ds["longitude"].values)
+        return almacen.a_rejilla(datos, ds["latitude"].values, ds["longitude"].values, rj)
 
 
 def recolectar_erddap(g, variable: str, forzar: date | None) -> int:
+    rj = rejilla(variable)
     total = 0
     for f in ERDDAP_FUENTES[variable]:
         fin = _mes(f["hasta"]) if f["hasta"] else min(_ultimo_mes_erddap(f), date.today().replace(day=1))
@@ -342,7 +373,7 @@ def recolectar_erddap(g, variable: str, forzar: date | None) -> int:
         for anio in sorted({m.year for m in meses}):
             resultados: dict[date, np.ndarray] = {}
             with ThreadPoolExecutor(max_workers=2) as pool:
-                futuros = {pool.submit(_mes_erddap, f, m): m for m in meses if m.year == anio}
+                futuros = {pool.submit(_mes_erddap, f, m, rj): m for m in meses if m.year == anio}
                 for futuro in as_completed(futuros):
                     mes = futuros[futuro]
                     try:
@@ -350,8 +381,70 @@ def recolectar_erddap(g, variable: str, forzar: date | None) -> int:
                     except (ErrorDatos, requests.RequestException, ValueError, KeyError) as e:
                         log.warning("%s %s: %s (se reintentará)", variable, mes.isoformat()[:7], e)
             total += _escribir_por_anios(g, {variable: resultados})[variable]
-            almacen.consolidar()
+            almacen.consolidar(rj)
             log.info("%-20s %d guardado", variable, anio)
+    return total
+
+
+# --------------------------------------------------------------------------- OISST (NOAA)
+
+def _ultimo_mes_oisst() -> date:
+    """Último mes publicado: el tamaño del eje de tiempo (un mes por paso desde 1981-09)."""
+    r = _get(OISST["url"] + ".dds", timeout=120)
+    r.raise_for_status()
+    n = int(re.search(r"time\[time = (\d+)\]", r.text).group(1))
+    return almacen.sumar_meses(_mes(OISST["desde"]), n - 1)
+
+
+def _mes_oisst(mes: date) -> np.ndarray:
+    """
+    Mapa mundial de un mes. Se pide en binario DAP2 (.dods) y en 4 franjas de 180 filas
+    (~1 MB cada una): el servidor de NOAA corta las respuestas largas (el mes entero en
+    texto son ~10 MB). En .dods la rejilla empieza tras «Data:», con el número de valores
+    dos veces (enteros de 32 bits) y después los float32 en big-endian.
+    """
+    k = almacen.indice_mes(mes) - almacen.indice_mes(_mes(OISST["desde"]))
+    franjas = []
+    for a in range(0, 720, 180):
+        # El servidor de NOAA limita peticiones (429) y a veces falla (502): hasta 6 intentos (~4 min).
+        r = _get(f"{OISST['url']}.dods?sst[{k}:1:{k}][{a}:1:{a + 179}][0:1:1439]", intentos=6, timeout=300)
+        if r.status_code != 200:
+            raise ErrorDatos(f"OISST HTTP {r.status_code}: {r.text[:200]}")
+        cuerpo = r.content
+        i = cuerpo.find(b"\nData:\n")
+        if i < 0:
+            raise ErrorDatos("OISST: respuesta sin datos binarios")
+        i += len(b"\nData:\n")
+        n = int.from_bytes(cuerpo[i:i + 4], "big")
+        if n != 180 * 1440 or len(cuerpo) < i + 8 + 4 * n:
+            raise ErrorDatos(f"OISST: {n} valores en lugar de {180 * 1440}")
+        franjas.append(np.frombuffer(cuerpo[i + 8:i + 8 + 4 * n], dtype=">f4").reshape(180, 1440))
+    datos = np.vstack(franjas).astype(float)
+    datos[np.abs(datos) > 1e30] = np.nan            # tierra: -9.96921e36
+    return almacen.a_rejilla(datos, _OISST_LATS, _OISST_LONS, almacen.FINA)
+
+
+def recolectar_oisst(g, forzar: date | None) -> int:
+    ultimo = _ultimo_mes_oisst()
+    meses = meses_pendientes(g, ["sst"], _mes(OISST["desde"]), ultimo, forzar)
+    log.info("OISST: %d meses pendientes hasta %s", len(meses), ultimo.isoformat()[:7])
+    total = 0
+    for anio in sorted({m.year for m in meses}):          # un año cada vez: memoria acotada
+        resultados: dict[date, np.ndarray] = {}
+        with ThreadPoolExecutor(max_workers=2) as pool:  # servidor de NOAA: con mesura
+            futuros = {pool.submit(_mes_oisst, m): m for m in meses if m.year == anio}
+            for futuro in as_completed(futuros):
+                mes = futuros[futuro]
+                try:
+                    resultados[mes] = futuro.result()
+                except (ErrorDatos, requests.RequestException, ValueError) as e:
+                    log.warning("OISST %s: %s (se reintentará)", mes.isoformat()[:7], e)
+        # Máscara de mar FINA: celdas con temperatura del mar (antes de recortar la tierra).
+        for mapa in resultados.values():
+            almacen.marcar_mar(g, ~np.isnan(mapa))
+        total += _escribir_por_anios(g, {"sst": resultados})["sst"]
+        almacen.consolidar(almacen.FINA)
+        log.info("OISST %d: %d meses guardados", anio, len(resultados))
     return total
 
 
@@ -359,17 +452,23 @@ def recolectar_erddap(g, variable: str, forzar: date | None) -> int:
 
 def recolectar(variables: list[str], desde: date | None = None) -> None:
     token = _token_earthdata(None)
-    g = almacen.abrir_escritura(variables, {v: VARIABLES[v]["unidades"] for v in variables})
+    unidades = {v: VARIABLES[v]["unidades"] for v in variables}
+    g = almacen.abrir_escritura([v for v in variables if v not in VARIABLES_FINAS], unidades, almacen.BASE)
+    g_fino = almacen.abrir_escritura([v for v in variables if v in VARIABLES_FINAS], unidades, almacen.FINA)
     forzar = desde.replace(day=1) if desde else None
 
     pasos = []
+    # OISST primero: da la máscara de mar de la rejilla FINA, que usa la clorofila.
+    if "sst" in variables:
+        pasos.append(("sst (OISST)", lambda: recolectar_oisst(g_fino, forzar), False))
     merra = [v for v in variables if v in MERRA_VARIABLES]
     if merra:
         pasos.append(("MERRA-2", lambda: sum(recolectar_merra(g, merra, forzar, token).values()), True))
     if "salinidad" in variables:
         pasos.append(("salinidad", lambda: recolectar_smap(g, forzar, token), True))
     for v in [v for v in variables if v in ERDDAP_FUENTES]:
-        pasos.append((v, lambda v=v: recolectar_erddap(g, v, forzar), False))
+        gv = g_fino if v in VARIABLES_FINAS else g
+        pasos.append((v, lambda v=v, gv=gv: recolectar_erddap(gv, v, forzar), False))
 
     for nombre, paso, necesita_token in pasos:
         t0 = time.monotonic()
@@ -380,7 +479,8 @@ def recolectar(variables: list[str], desde: date | None = None) -> None:
         except Exception as e:  # una fuente que falla no detiene las demás
             log.error("%-20s FALLO: %s", nombre, e)
         finally:
-            almacen.consolidar()
+            for r in almacen.REJILLAS:
+                almacen.consolidar(r)
 
 
 def main() -> None:
