@@ -69,10 +69,8 @@ function seg(id, label, items, on) {
   options.insertBefore(g, $("methods-link")); return g;
 }
 function press(g, v) { g.querySelectorAll("button").forEach(function (b) { b.setAttribute("aria-pressed", String(b.dataset.v === v)); }); }
-var spScreens = seg("sp-screens", "Screen", [["viz", "Visualisation"], ["analysis", "Analysis"]], setScreen);
 var spModes = seg("sp-modes", "Visualisation options", [["time", "Stack by time"], ["species", "Stack by species"],
   ["trend", "Trend map"]], setMode);
-function setScreen(v) { state.screen = v; state.focus = false; setPage(state.page); }
 function setMode(v) { state.mode = v; state.focus = false; refresh(); }
 
 var trendSide = document.querySelector(".side .side-body");
@@ -127,7 +125,7 @@ function setPage(p) {
   trendRow.hidden = sp; trendSide.hidden = sp; $("screens").hidden = sp;
   var analysis = document.querySelector('#screens [data-screen="analysis"]').getAttribute("aria-pressed") === "true";
   $("modes").hidden = sp || analysis; if ($("amodes")) $("amodes").hidden = sp || !analysis;
-  spScreens.hidden = !sp; spModes.hidden = !sp || state.screen === "analysis";
+  spModes.hidden = !sp;
   row.hidden = !sp; side.hidden = !sp;
   if (history.replaceState) history.replaceState(null, "", sp ? "#species" : location.pathname + location.search);
   if (sp && !state.list.length) start(); else if (sp) refresh();
@@ -419,7 +417,7 @@ function flatKind() {                    // null: the stack; else what the flat 
 }
 function refresh() {
   if (state.page !== "species") return;
-  press(spScreens, state.screen); press(spModes, state.mode); spModes.hidden = state.screen === "analysis";
+  press(spModes, state.mode);
   var d = state.data, kind = flatKind();
   if (!d) { draw(); return; }
   var years = layerYears(d), sel = $("sp-year");
