@@ -58,7 +58,7 @@ function press(g, v) { g.querySelectorAll("button").forEach(function (b) { b.set
 var spScreens = seg("sp-screens", "Screen", [["viz", "Visualisation"], ["analysis", "Analysis"]], setScreen);
 var spModes = seg("sp-modes", "Visualisation options", [["time", "Stack by time"], ["species", "Stack by species"], ["trend", "Trend map"]], setMode);
 press(spScreens, state.screen); press(spModes, state.mode);
-function setScreen(v) { state.screen = v; press(spScreens, v); setPage(state.page); }   // Analysis is empty for now
+function setScreen(v) { state.screen = v; state.focus = false; press(spScreens, v); if (v === "analysis") setView("med"); setPage(state.page); }
 function setMode(v) { state.mode = v; state.focus = false; press(spModes, v); refresh(); }
 
 var trendSide = document.querySelector(".side .side-body");
@@ -108,7 +108,7 @@ function setPage(p) {
   trendRow.hidden = sp; trendSide.hidden = sp; $("screens").hidden = sp;
   $("modes").hidden = sp || document.querySelector('#screens [data-screen="analysis"]').getAttribute("aria-pressed") === "true";
   spScreens.hidden = !sp; spModes.hidden = !sp || state.screen === "analysis";
-  row.hidden = !sp || state.screen === "analysis"; side.hidden = !sp;
+  row.hidden = !sp; side.hidden = !sp;
   if (history.replaceState) history.replaceState(null, "", sp ? "#species" : location.pathname + location.search);
   if (sp && !state.list.length) start(); else if (sp) refresh();
 }
@@ -222,16 +222,14 @@ function need(name, year) {              // the backend map if it is here; else 
   return null;
 }
 
-function trendFor(name) {                // change of suitability per decade in every cell, computed once per species
-  var T = trends[name]; if (T) return T.puntos ? T : null;
-  trends[name] = {};
+function slopes(name, from, what) {      // promise: change of suitability per decade in every cell, years >= from
   // ponytail: least-squares slope from at most 12 evenly spaced years, not every year (each year is a 1 MB
   // download); use all years when the backend offers the trend map as one endpoint.
-  var all = state.data.anios, step = Math.ceil(all.length / 12), acc = {}, done = 0;
+  var all = state.data.anios.filter(function (y) { return y >= from; }), step = Math.ceil(all.length / 12), acc = {}, done = 0;
   var ys = all.filter(function (y, i) { return (all.length - 1 - i) % step === 0; });
   function next() {
     if (done === ys.length) return;
-    if (state.species === name && state.mode === "trend") status("Computing the trend: map " + (done + 1) + " of " + ys.length + "…");
+    if (state.species === name) status(what + ": map " + (done + 1) + " of " + ys.length + "…");
     return api("/especies/" + encodeURIComponent(name) + "/mapa?anio=" + ys[done]).then(function (m) {
       STEP = m.paso_grados || STEP; var x = ys[done] - ys[0];
       m.puntos.forEach(function (p) {
@@ -241,16 +239,76 @@ function trendFor(name) {                // change of suitability per decade in 
       done++; return next();
     });
   }
-  next().then(function () {
-    var n = ys.length, pts = [], abs = [];
+  return next().then(function () {
+    var n = ys.length, pts = [];
     Object.keys(acc).forEach(function (k) {
       var a = acc[k]; if (a[2] < n) return;                       // only cells with a value in every sampled year
-      var sl = 10 * (n * a[6] - a[3] * a[4]) / (n * a[5] - a[3] * a[3]); pts.push([a[0], a[1], sl]); abs.push(Math.abs(sl));
+      pts.push([a[0], a[1], 10 * (n * a[6] - a[3] * a[4]) / (n * a[5] - a[3] * a[3])]);
     });
-    abs.sort(function (p, q) { return p - q; });
-    trends[name] = { puntos: pts, scale: Math.max(0.01, abs[Math.floor(abs.length * 0.98)] || 0), years: ys, step: step };
-    refresh();
+    return { puntos: pts, years: ys, step: step };
+  });
+}
+function quantile(list, q) { var s = list.slice().sort(function (a, b) { return a - b; }); return s[Math.floor((s.length - 1) * q)] || 0; }
+
+function trendFor(name) {                // the trend map, computed once per species; null while it loads
+  var T = trends[name]; if (T) return T.puntos ? T : null;
+  trends[name] = {};
+  slopes(name, 0, "Computing the trend").then(function (T) {
+    T.scale = Math.max(0.01, quantile(T.puntos.map(function (p) { return Math.abs(p[2]); }), 0.98));
+    trends[name] = T; refresh();
   }).catch(function (e) { delete trends[name]; status("Trend not available: " + e.message); });
+  return null;
+}
+
+/* Bivariate map (Analysis). Two things per cell, three classes each:
+   - environment change: how far the warmest month, the coldest month, the number of hot months and chlorophyll
+     have moved over the period, each measured in its own normal year-to-year swing (total linear change divided
+     by the standard deviation around the line), then the mean of the four sizes;
+   - habitat change: slope of the species' suitability over the same years.
+   The classes are thirds of the cells of the map, so the cuts depend on the species. */
+var ENV_SET = "mediterraneo-2003";       // Trends set on the same 1° cells as the species maps, with the four variables
+var ENV_VARS = [["sst_max", "warmest month"], ["sst_min", "coldest month"], ["hot_months", "hot months"], ["chl", "chlorophyll"]];
+var BIV = [["#f2c4bd", "#dd7c70", "#b3261a"], ["#e8e8e8", "#b5b5b5", "#7a7a7a"], ["#c3d5ee", "#7aa5dc", "#1c5cab"]];   // [losing, stable, gaining][low, medium, high]
+var envChange = null, bivars = {};
+
+function shift(v) {                      // total linear change of a yearly series, in standard deviations around its line
+  var n = v.length, mx = (n - 1) / 2, my = 0, sxy = 0, sxx = 0, ss = 0, i;
+  for (i = 0; i < n; i++) my += v[i] / n;
+  for (i = 0; i < n; i++) { sxy += (i - mx) * (v[i] - my); sxx += (i - mx) * (i - mx); }
+  var b = sxy / sxx; for (i = 0; i < n; i++) ss += Math.pow(v[i] - my - b * (i - mx), 2);
+  var sd = Math.sqrt(ss / (n - 2)); return sd > 0 ? b * (n - 1) / sd : 0;
+}
+function envFor() {                      // promise: {cells: "lat,lon" -> {z: [four shifts], index}, years}
+  if (!envChange) {
+    envChange = api("/trends/" + ENV_SET + "/meta.json").then(function (meta) {
+      return Promise.all(ENV_VARS.map(function (v) { return api("/trends/" + ENV_SET + "/" + v[0] + ".json"); })).then(function (files) {
+        var r = meta.region, cells = {};
+        meta.ocean_index.forEach(function (f, k) {
+          var lat = r.lat_north - (Math.floor(f / r.nx) + 0.5) * r.cell_deg, lon = r.lon_west + (f % r.nx + 0.5) * r.cell_deg;
+          var z = files.map(function (d) { return shift(d.values.map(function (row) { return row[k]; })); });
+          cells[lat + "," + lon] = { z: z, index: z.reduce(function (a, x) { return a + Math.abs(x); }, 0) / z.length };
+        });
+        return { cells: cells, years: meta.years };
+      });
+    });
+    envChange.catch(function () { envChange = null; });
+  }
+  return envChange;
+}
+function bivarFor(name) {                // the bivariate map, computed once per species; null while it loads
+  var B = bivars[name]; if (B) return B.puntos ? B : null;
+  bivars[name] = {};
+  envFor().then(function (env) {
+    return slopes(name, env.years[0], "Computing the habitat change").then(function (T) {
+      var pts = [];
+      T.puntos.forEach(function (p) { var c = env.cells[p[0] + "," + p[1]]; if (c) pts.push([p[0], p[1], p[2], c]); });
+      var i1 = quantile(pts.map(function (p) { return p[3].index; }), 1 / 3), i2 = quantile(pts.map(function (p) { return p[3].index; }), 2 / 3);
+      var s0 = quantile(pts.map(function (p) { return Math.abs(p[2]); }), 1 / 3);
+      pts.forEach(function (p) { p[4] = p[2] < -s0 ? 0 : p[2] > s0 ? 2 : 1; p[5] = p[3].index < i1 ? 0 : p[3].index < i2 ? 1 : 2; });
+      bivars[name] = { puntos: pts, cuts: [i1, i2, s0], years: T.years, step: T.step, period: [env.years[0], env.years[env.years.length - 1]] };
+      refresh();
+    });
+  }).catch(function (e) { delete bivars[name]; status("Analysis not available: " + e.message); });
   return null;
 }
 
@@ -267,7 +325,7 @@ function layers() {                      // what the stack shows, top layer firs
 
 function rgb(h) { h = h.replace("#", ""); if (h.length === 3) h = h.replace(/./g, "$&$&"); return [0, 2, 4].map(function (i) { return parseInt(h.substr(i, 2), 16); }); }
 
-function paint(g, V, s, data, trend) {   // one map in a rectangle at the origin: land, sea cells, sightings
+function paint(g, V, s, data, kind) {    // one map in a rectangle at the origin; kind: null (suitability) | "trend" | "bivar"
   var fw = (V.lon1 - V.lon0) * V.k * s, fh = (V.lat1 - V.lat0) * s, cw = STEP * V.k * s, ch = STEP * s;
   function X(lon) { return (lon - V.lon0) * V.k * s; }
   function Y(lat) { return (V.lat1 - lat) * s; }
@@ -277,11 +335,11 @@ function paint(g, V, s, data, trend) {   // one map in a rectangle at the origin
   var lo = rgb(css("--pos")), mid = rgb(css("--mid")), hi = rgb(css("--neg"));
   data.puntos.forEach(function (p) {
     if (p[0] < V.lat0 - STEP || p[0] > V.lat1 + STEP || p[1] < V.lon0 - STEP || p[1] > V.lon1 + STEP) return;
-    var t = Math.max(-1, Math.min(1, trend ? p[2] / data.scale : Math.max(0, p[2]))), to = t < 0 ? lo : hi; t = Math.abs(t);
-    g.fillStyle = "rgb(" + mid.map(function (c, i) { return Math.round(c + (to[i] - c) * t); }).join(",") + ")";
+    var t = Math.max(-1, Math.min(1, kind === "trend" ? p[2] / data.scale : Math.max(0, p[2]))), to = t < 0 ? lo : hi; t = Math.abs(t);
+    g.fillStyle = kind === "bivar" ? BIV[p[4]][p[5]] : "rgb(" + mid.map(function (c, i) { return Math.round(c + (to[i] - c) * t); }).join(",") + ")";
     g.fillRect(X(p[1]) - cw / 2, Y(p[0]) - ch / 2, cw + 0.6, ch + 0.6);
   });
-  if (!trend) {                          // sightings: other years small and faint, the layer's year on top
+  if (!kind) {                           // sightings: other years small and faint, the layer's year on top
     g.fillStyle = css("--probe"); g.globalAlpha = 0.35;
     data.avistamientos.forEach(function (a) { if (!a[3]) { g.beginPath(); g.arc(X(a[1]), Y(a[0]), 1.6, 0, 2 * Math.PI); g.fill(); } });
     g.globalAlpha = 1;
@@ -298,7 +356,7 @@ function layerImage(L, m, V, s, dpr) {   // a stack layer painted once, then reu
   if (Object.keys(images).length > 24) images = {};
   var cv = document.createElement("canvas");
   cv.width = Math.max(1, Math.ceil((V.lon1 - V.lon0) * V.k * s * dpr)); cv.height = Math.max(1, Math.ceil((V.lat1 - V.lat0) * s * dpr));
-  var g = cv.getContext("2d"); g.scale(dpr, dpr); paint(g, V, s, m, false);
+  var g = cv.getContext("2d"); g.scale(dpr, dpr); paint(g, V, s, m, null);
   return (images[key] = cv);
 }
 
@@ -308,29 +366,29 @@ function label(g, t, x, y, o) {
 }
 
 function draw() {
-  if (state.page !== "species" || state.screen !== "viz") return;
+  if (state.page !== "species") return;
   var dpr = window.devicePixelRatio || 1, w = canvas.clientWidth, h = canvas.clientHeight;
   if (!w || !h) return;
   canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
   var g = canvas.getContext("2d"); g.setTransform(dpr, 0, 0, dpr, 0, 0);
-  var V = VIEWS[state.view], spanX = (V.lon1 - V.lon0) * V.k, spanY = V.lat1 - V.lat0, d = state.data, trend = state.mode === "trend";
-  var s, ox, oy, fw, fh;
+  var V = VIEWS[state.view], spanX = (V.lon1 - V.lon0) * V.k, spanY = V.lat1 - V.lat0, d = state.data;
+  var kind = state.screen === "analysis" ? "bivar" : state.mode === "trend" ? "trend" : null, s, ox, oy, fw, fh;
   geom = null; shown = null; hits = [];
   if (!d) return;
-  canvas.style.cursor = trend || state.focus ? "crosshair" : "pointer";
+  canvas.style.cursor = kind || state.focus ? "crosshair" : "pointer";
 
-  if (trend || state.focus) {            // one flat map with degree labels
-    var data = trend ? trendFor(d.nombre) : need(d.nombre, state.year);
+  if (kind || state.focus) {             // one flat map with degree labels
+    var data = kind === "bivar" ? bivarFor(d.nombre) : kind ? trendFor(d.nombre) : need(d.nombre, state.year);
     s = Math.min((w - 80) / spanX, (h - 80) / spanY); ox = (w - spanX * s) / 2; oy = (h - spanY * s) / 2; fw = spanX * s; fh = spanY * s;
-    geom = { s: s, k: V.k, ox: ox, oy: oy, lon0: V.lon0, lat1: V.lat1 }; shown = data && { data: data, trend: trend };
-    g.save(); g.translate(ox, oy); paint(g, V, s, data, trend); g.restore();
+    geom = { s: s, k: V.k, ox: ox, oy: oy, lon0: V.lon0, lat1: V.lat1 }; shown = data && { data: data, kind: kind };
+    g.save(); g.translate(ox, oy); paint(g, V, s, data, kind); g.restore();
     g.strokeStyle = css("--ink-2"); g.lineWidth = 0.8; g.strokeRect(ox, oy, fw, fh);
     var lon, lat, ns = function (v, a, b) { return Math.abs(v) + "°" + (v > 0 ? a : v < 0 ? b : ""); };
     for (lon = Math.ceil(V.lon0 / V.lonStep) * V.lonStep; lon <= V.lon1; lon += V.lonStep)
       label(g, ns(lon, "E", "W"), ox + (lon - V.lon0) * V.k * s, oy + fh + 12, { align: "center", size: 10, mono: true });
     for (lat = Math.floor(V.lat1 / V.latStep) * V.latStep; lat >= V.lat0; lat -= V.latStep)
       label(g, ns(lat, "N", "S"), ox - 6, oy + (V.lat1 - lat) * s, { align: "right", size: 10, mono: true });
-    if (data) status(""); else if (!trend) status("Loading the map…");
+    if (data) status(""); else if (!kind) status("Loading the map…");
     return;
   }
 
@@ -353,16 +411,27 @@ function draw() {
 }
 
 function refresh() {                     // legend and bottom bar follow the mode, then the map is drawn
-  var trend = state.mode === "trend", T = trends[state.species], land = '<span><span class="sw land"></span>land</span>';
-  $("sp-legend").innerHTML = trend
+  var biv = state.screen === "analysis", trend = !biv && state.mode === "trend", flat = biv || trend;
+  var T = trends[state.species], B = bivars[state.species], land = '<span><span class="sw land"></span>land</span>';
+  var rows = ["gaining", "stable", "losing"].map(function (t, r) {
+    return "<tr><th>" + t + "</th>" + BIV[2 - r].map(function (c) { return '<td style="background:' + c + '"></td>'; }).join("") + "</tr>";
+  }).join("");
+  $("sp-legend").innerHTML = biv
+    ? '<table class="sp-biv"><caption>Habitat suitability ↓ &nbsp;·&nbsp; Environment change →</caption>' + rows +
+      "<tr><th></th><td>low</td><td>medium</td><td>high</td></tr></table>" +
+      '<span class="sp-biv-note">Environment change: how far the warmest month, the coldest month, the number of hot months and chlorophyll have moved' +
+      (B && B.puntos ? " in " + B.period[0] + "–" + B.period[1] : "") + ", counted in their normal year-to-year swings (mean of the four)." +
+      (B && B.puntos ? " Cuts: " + B.cuts[0].toFixed(1) + " and " + B.cuts[1].toFixed(1) + " swings; habitat is stable within ±" + B.cuts[2].toFixed(3) + " per decade. Classes are thirds of this map." : "") +
+      "</span>" + land
+    : trend
     ? '<span>Habitat suitability: losing <span class="ramp div"></span> gaining</span>' +
       (T && T.puntos ? "<span>range ±" + T.scale.toFixed(2) + " per decade · " + T.years[0] + "–" + T.years[T.years.length - 1] +
         (T.step > 1 ? ", one year in every " + T.step : "") + "</span>" : "") + land
     : '<span>Habitat suitability: 0 <span class="ramp"></span> 1</span>' +
       '<span><span class="sp-dot"></span>sightings that year</span><span><span class="sp-dot faint"></span>other years</span>' + land;
-  $("sp-back").hidden = trend || !state.focus;
-  ["sp-prev", "sp-year", "sp-next"].forEach(function (id) { $(id).hidden = trend; });
-  $("sp-hint").textContent = trend || state.focus ? "Point at the map to read a place." : "Click a map to open it.";
+  $("sp-back").hidden = flat || !state.focus;
+  ["sp-prev", "sp-year", "sp-next"].forEach(function (id) { $(id).hidden = flat; });
+  $("sp-hint").textContent = flat || state.focus ? "Point at the map to read a place." : "Click a map to open it.";
   draw();
 }
 
@@ -391,7 +460,10 @@ canvas.addEventListener("mousemove", function (ev) {
   var key = cLat + "," + cLon, p = D.celda[key], seen = D.vistos[key];
   if (!p) { $("sp-cell").textContent = "No sea data here."; return; }
   var ns = function (v, a, b) { return Math.abs(v).toFixed(1) + "°" + (v >= 0 ? a : b); }, t = ns(p[0], "N", "S") + ", " + ns(p[1], "E", "W");
-  if (shown.trend) t += " · suitability " + (p[2] > 0 ? "+" : p[2] < 0 ? "−" : "") + Math.abs(p[2]).toFixed(3) + " per decade";
+  var sg = function (v, d) { return (v > 0 ? "+" : v < 0 ? "−" : "") + Math.abs(v).toFixed(d); };
+  if (shown.kind === "bivar") t += " · habitat " + ["losing", "stable", "gaining"][p[4]] + " (" + sg(p[2], 3) + " per decade) · environment change " +
+    ["low", "medium", "high"][p[5]] + " (" + p[3].index.toFixed(1) + " swings: " + ENV_VARS.map(function (v, i) { return v[1] + " " + sg(p[3].z[i], 1); }).join(", ") + ")";
+  else if (shown.kind) t += " · suitability " + sg(p[2], 3) + " per decade";
   else {
     t += " · suitability " + p[2].toFixed(2) + " in " + state.year;
     if (p[2] < D.umbral_idoneo && p[3] >= 0) t += " · limited by " + varName(D.limitantes[p[3]]).toLowerCase();

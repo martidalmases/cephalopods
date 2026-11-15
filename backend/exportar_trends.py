@@ -47,6 +47,17 @@ VARIABLES = [
     dict(id="sst", variable="temperatura", name="Sea surface temperature", unit="°C", decimals=2,
          definition="How warm the surface is (MERRA-2 skin temperature; over the sea, the sea surface).",
          source="NASA MERRA-2 monthly (M2TMNXSLV TS)"),
+    # Resúmenes anuales distintos de la media (clave «resumen»): mes más cálido, más frío y nº de meses cálidos.
+    dict(id="sst_max", variable="temperatura", resumen="max", name="Warmest month temperature", unit="°C", decimals=2,
+         definition="Surface temperature of the warmest month of each year.",
+         source="NASA MERRA-2 monthly (M2TMNXSLV TS)"),
+    dict(id="sst_min", variable="temperatura", resumen="min", name="Coldest month temperature", unit="°C", decimals=2,
+         definition="Surface temperature of the coldest month of each year.",
+         source="NASA MERRA-2 monthly (M2TMNXSLV TS)"),
+    dict(id="hot_months", variable="temperatura", resumen="calidos", name="Hot months per year", unit="months", decimals=1,
+         definition="Months of the year warmer than the place's own hot-month limit: the 90th percentile of its "
+                    "monthly temperatures in 1980–2009.",
+         source="NASA MERRA-2 monthly (M2TMNXSLV TS)"),
     dict(id="chl", variable="fitoplancton", name="Chlorophyll-a", unit="mg/m³", decimals=3,
          definition="The green pigment in microscopic algae. More chlorophyll means more algae in the water.",
          source="MODIS Aqua monthly (NOAA CoastWatch ERDDAP)"),
@@ -95,6 +106,41 @@ REGIONES = {
                      "mascara": _mascara_mediterraneo},
     "mundo": {"name": "World ocean", "lat": (-78, 84), "lon": (-180, 180), "factor": 2, "mascara": None},
 }
+
+
+BASE_CALIDOS = 30            # primeros años (1980-2009) que fijan el umbral de «mes cálido» de cada celda
+
+
+def resumen_anual(m: np.ndarray, modo: str) -> np.ndarray:
+    """
+    (años, 12, ...) -> (años, ...): mes más cálido ("max"), más frío ("min") o número de meses por
+    encima del percentil 90 de los meses de los primeros BASE_CALIDOS años ("calidos").
+    Un año sin sus 12 meses queda en NaN.
+    """
+    with warnings.catch_warnings():          # celdas sin ningún dato: NaN, que es lo esperado
+        warnings.simplefilter("ignore", RuntimeWarning)
+        if modo == "max":
+            r = np.nanmax(m, axis=1)
+        elif modo == "min":
+            r = np.nanmin(m, axis=1)
+        else:
+            base = m[:BASE_CALIDOS]
+            umbral = np.nanpercentile(base.reshape((-1,) + base.shape[2:]), 90, axis=0)
+            r = (m > umbral).sum(axis=1)
+    return np.where(np.isfinite(m).all(axis=1), r, np.nan).astype("float32")
+
+
+def _anual(g: zarr.Group, v: dict, anios: np.ndarray, franja: int = 45) -> np.ndarray:
+    """Valor anual (años, lat, lon) de una variable de la web: media, o el resumen que pida."""
+    if "resumen" not in v:
+        return almacen.medias_anuales(g, v["variable"], anios, MESES_MINIMOS)
+    t0 = almacen.indice_mes(date(int(anios[0]), 1, 1))
+    anual = np.full((len(anios), almacen.NLAT, almacen.NLON), np.nan, dtype="float32")
+    for a in range(0, almacen.NLAT, franja):          # por franjas de latitud, como medias_anuales: poca RAM
+        b = min(a + franja, almacen.NLAT)
+        m = g[v["variable"]][t0:t0 + 12 * len(anios), a:b, :].reshape(len(anios), 12, b - a, almacen.NLON)
+        anual[:, a:b, :] = resumen_anual(m, v["resumen"])
+    return anual
 
 
 def _recortar(campo: np.ndarray, region: dict) -> np.ndarray:
@@ -161,7 +207,7 @@ def exportar() -> list[dict]:
     # Medias anuales recortadas a cada región, variable a variable (poca RAM).
     por_region: dict[str, dict[str, np.ndarray]] = {r: {} for r in REGIONES}
     for v in disponibles:
-        anual = almacen.medias_anuales(g, v["variable"], anios, MESES_MINIMOS)
+        anual = _anual(g, v, anios)
         anual[:, ~mar] = np.nan
         for r, region in REGIONES.items():
             por_region[r][v["id"]] = _recortar(anual, region)
@@ -229,6 +275,19 @@ def exportar() -> list[dict]:
     return indice
 
 
+def _prueba() -> None:
+    """python exportar_trends.py --prueba: comprueba resumen_anual con una serie conocida."""
+    m = np.tile(np.arange(12, dtype="float32"), (40, 1))[:, :, None]     # cada año: 0..11
+    m[35, 6:, 0] = 20                                                     # un año con 6 meses muy cálidos
+    m[36, 0, 0] = np.nan                                                  # un año incompleto
+    assert resumen_anual(m, "max")[0, 0] == 11 and resumen_anual(m, "min")[0, 0] == 0
+    cal = resumen_anual(m, "calidos")[:, 0]
+    assert cal[0] == 1 and cal[35] == 6 and np.isnan(cal[36]), cal       # p90 de la base = 10: sólo el 11 lo supera
+    print("ok")
+
+
 if __name__ == "__main__":
+    if "--prueba" in sys.argv:
+        sys.exit(_prueba())
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s", datefmt="%H:%M:%S", stream=sys.stdout)
     exportar()
