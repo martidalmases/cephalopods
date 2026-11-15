@@ -638,19 +638,23 @@ function start() {
 // The Variables screen (app.js) reads one set at a time; changing it reloads the page with ?datos=<set>.
 (function dataSetPicker() {
   var place = $("region-name"); if (!place) return;
-  var current = new URLSearchParams(location.search).get("datos") || "mediterraneo-1982";
-  var sel = el("select"); sel.id = "data-set"; sel.setAttribute("aria-label", "Region and period");
+  var current = new URLSearchParams(location.search).get("datos") || "mundo-1982";
+  var sel = el("select"); sel.id = "data-set"; sel.setAttribute("aria-label", "Region");
   sel.className = "sp-select";
   place.parentNode.insertBefore(sel, place.nextSibling);
   api("/trends").then(function (sets) {
-    sel.innerHTML = sets.map(function (d) {
-      return '<option value="' + d.id + '">' + d.region + ", " + d.desde + "–" + d.hasta + " (" + d.variables.length +
-             (d.id.indexOf("habitat") === 0 ? " species variables, " : " variables, ") + d.cell_deg + "° cells)</option>";
-    }).join("") + '<option value="ficheros">Mediterranean Sea, 2003–2025 (static files in data/, 0.5° cells)</option>';
-    sel.value = current === "sintetico" ? "ficheros" : current;
-  }).catch(function () {
-    sel.innerHTML = '<option value="ficheros">Mediterranean Sea, 2003–2025 (static files in data/)</option>'; sel.value = "ficheros";
-  });
+    // Two choices, world first: per region, the set with sea temperature that starts earliest (most years).
+    var best = {};
+    sets.forEach(function (d) {
+      var r = d.id.split("-")[0];
+      if (d.variables.indexOf("sst") >= 0 && (!best[r] || d.desde < best[r].desde)) best[r] = d;
+    });
+    sel.innerHTML = ["mundo", "mediterraneo"].filter(function (r) { return best[r]; }).map(function (r) {
+      var d = best[r];
+      return '<option value="' + d.id + '">' + d.region + ", " + d.desde + "–" + d.hasta + "</option>";
+    }).join("");
+    sel.value = current;
+  }).catch(function () { sel.hidden = true; });
   sel.addEventListener("change", function () {
     var q = new URLSearchParams(location.search); q.set("datos", sel.value);
     location.search = q.toString();
