@@ -33,7 +33,8 @@ function css(name) { return getComputedStyle(document.documentElement).getProper
 function commonName(sp) { return COMMON_NAMES[sp.nombre] || sp.nombre_comun || ""; }
 function varName(v) { return VARIABLE_NAMES[v] || v; }
 
-var state = { page: "trends", species: null, year: null, data: null, map: null, list: [], view: "med" };
+// mode: "time" (stack of years) | "species" (stack of species) | "trend"; focus: one stack layer opened flat
+var state = { page: "trends", species: null, year: null, data: null, list: [], view: "med", screen: "viz", mode: "time", focus: false };
 
 /* ---------------- DOM: page switch, sidebar, main view, panel ---------------- */
 var options = document.querySelector(".options");
@@ -43,6 +44,22 @@ var pages = el("span", "seg"); pages.id = "pages"; pages.setAttribute("role", "g
   b.addEventListener("click", function () { setPage(p[0]); }); pages.appendChild(b);
 });
 options.insertBefore(pages, options.firstChild);
+
+// Same two button groups as the Trends page, with the Species choices. Each page shows its own pair.
+function seg(id, label, items, on) {
+  var g = el("span", "seg"); g.id = id; g.hidden = true; g.setAttribute("role", "group"); g.setAttribute("aria-label", label);
+  items.forEach(function (it) {
+    var b = el("button", "", it[1]); b.type = "button"; b.dataset.v = it[0];
+    b.addEventListener("click", function () { on(it[0]); }); g.appendChild(b);
+  });
+  options.appendChild(g); return g;
+}
+function press(g, v) { g.querySelectorAll("button").forEach(function (b) { b.setAttribute("aria-pressed", String(b.dataset.v === v)); }); }
+var spScreens = seg("sp-screens", "Screen", [["viz", "Visualisation"], ["analysis", "Analysis"]], setScreen);
+var spModes = seg("sp-modes", "Visualisation options", [["time", "Stack by time"], ["species", "Stack by species"], ["trend", "Trend map"]], setMode);
+press(spScreens, state.screen); press(spModes, state.mode);
+function setScreen(v) { state.screen = v; press(spScreens, v); setPage(state.page); }   // Analysis is empty for now
+function setMode(v) { state.mode = v; state.focus = false; press(spModes, v); refresh(); }
 
 var trendSide = document.querySelector(".side .side-body");
 var side = el("div", "side-body"); side.id = "sp-side"; side.hidden = true;
@@ -65,10 +82,11 @@ var row = el("div", "row"); row.id = "sp-row"; row.hidden = true;
 row.innerHTML =
   '<main class="main"><div class="legend" id="sp-legend"></div>' +
   '<div class="stage"><canvas id="sp-map" aria-label="Habitat suitability map"></canvas><p class="loading" id="sp-status">Loading…</p></div>' +
-  '<div class="stackbar"><button type="button" class="round" id="sp-prev" aria-label="Previous year">&#9664;</button>' +
+  '<div class="stackbar"><button type="button" class="ghost" id="sp-back" hidden>&larr; Back to stack</button>' +
+  '<button type="button" class="round" id="sp-prev" aria-label="Previous year">&#9664;</button>' +
   '<select id="sp-year" class="sp-select" aria-label="Year"></select>' +
   '<button type="button" class="round" id="sp-next" aria-label="Next year">&#9654;</button>' +
-  '<span class="fact dim">Point at the map to read a place.</span></div></main>' +
+  '<span class="fact dim" id="sp-hint"></span></div></main>' +
   '<aside class="panel" aria-label="Species details"><div class="sp-panel">' +
   '<div><div class="panel-head"><h2 id="sp-title">&nbsp;</h2></div><p class="fact dim" id="sp-sub">&nbsp;</p></div>' +
   '<section><h2>Favourable sea area by year</h2><div class="sp-bars" id="sp-bars"></div><div class="sp-years" id="sp-years"></div>' +
@@ -81,9 +99,6 @@ row.innerHTML =
   '</div></aside>';
 trendRow.parentNode.appendChild(row);
 
-$("sp-legend").innerHTML = '<span>Habitat suitability: 0 <span class="ramp"></span> 1</span>' +
-  '<span><span class="sp-dot"></span>sightings that year</span><span><span class="sp-dot faint"></span>other years</span>' +
-  '<span><span class="sw land"></span>land</span>';
 
 function setPage(p) {
   state.page = p;
@@ -91,9 +106,10 @@ function setPage(p) {
   var sp = p === "species";
   trendRow.hidden = sp; trendSide.hidden = sp; $("screens").hidden = sp;
   $("modes").hidden = sp || document.querySelector('#screens [data-screen="analysis"]').getAttribute("aria-pressed") === "true";
-  row.hidden = !sp; side.hidden = !sp;
+  spScreens.hidden = !sp; spModes.hidden = !sp || state.screen === "analysis";
+  row.hidden = !sp || state.screen === "analysis"; side.hidden = !sp;
   if (history.replaceState) history.replaceState(null, "", sp ? "#species" : location.pathname + location.search);
-  if (sp && !state.list.length) start(); else if (sp) draw();
+  if (sp && !state.list.length) start(); else if (sp) refresh();
 }
 
 /* ---------------- API ---------------- */
@@ -131,21 +147,8 @@ function show(name) {
     }).join("");
     if (!state.year || years.indexOf(state.year) < 0) state.year = years[years.length - 1];
     setYear(state.year, true);
-    panel(); return loadList(d.nombre).then(loadMap);
+    panel(); return loadList(d.nombre).then(refresh);
   }).catch(function (e) { status("Could not compute " + name + ": " + e.message); });
-}
-
-function loadMap() {
-  var name = state.species, year = state.year;
-  return api("/especies/" + encodeURIComponent(name) + "/mapa?anio=" + year).then(function (m) {
-    if (state.species !== name || state.year !== year) return;
-    STEP = m.paso_grados || STEP;
-    m.celda = {};   // "lat,lon" -> point, for the hover read-out
-    m.puntos.forEach(function (p) { m.celda[p[0] + "," + p[1]] = p; });
-    m.vistos = {};
-    m.avistamientos.forEach(function (a) { m.vistos[a[0] + "," + a[1]] = a; });
-    state.map = m; status(""); draw(); bars();
-  }).catch(function (e) { status("Map not available: " + e.message); });
 }
 
 function status(t) { $("sp-status").textContent = t; $("sp-status").hidden = !t; }
@@ -198,67 +201,201 @@ function setYear(y, quiet) {
   state.year = y; $("sp-year").value = y;
   var years = state.data ? state.data.anios : [y];
   $("sp-prev").disabled = y <= years[0]; $("sp-next").disabled = y >= years[years.length - 1];
-  if (!quiet) { bars(); if (state.species) loadMap(); }
+  if (!quiet) { bars(); refresh(); }
 }
 
-/* ---------------- map ---------------- */
-var canvas = $("sp-map"), geom = null;
+/* ---------------- maps: a stack of layers, one opened layer, or the trend map ---------------- */
+var canvas = $("sp-map"), geom = null, shown = null, hits = [];
+var ISO = { ux: 1, uy: 0.10, vx: -0.35, vy: 0.30 };   // same slant as the Trends stack (app.js)
+var loaded = {}, pending = {}, images = {}, trends = {};
+
+function need(name, year) {              // the backend map if it is here; else ask for it and redraw when it arrives
+  var key = name + "|" + year, m = loaded[key];
+  if (m) { delete loaded[key]; loaded[key] = m; return m; }      // re-insert: the oldest key is the least used
+  if (!pending[key]) pending[key] = api("/especies/" + encodeURIComponent(name) + "/mapa?anio=" + year).then(function (m) {
+    STEP = m.paso_grados || STEP; delete pending[key];
+    var keys = Object.keys(loaded); if (keys.length >= 16) delete loaded[keys[0]];   // a world map is about 1 MB
+    m.seen = m.avistamientos.reduce(function (n, a) { return n + a[3]; }, 0);
+    loaded[key] = m; draw();
+  }).catch(function (e) { delete pending[key]; status("Map not available: " + e.message); });
+  return null;
+}
+
+function trendFor(name) {                // change of suitability per decade in every cell, computed once per species
+  var T = trends[name]; if (T) return T.puntos ? T : null;
+  trends[name] = {};
+  // ponytail: least-squares slope from at most 12 evenly spaced years, not every year (each year is a 1 MB
+  // download); use all years when the backend offers the trend map as one endpoint.
+  var all = state.data.anios, step = Math.ceil(all.length / 12), acc = {}, done = 0;
+  var ys = all.filter(function (y, i) { return (all.length - 1 - i) % step === 0; });
+  function next() {
+    if (done === ys.length) return;
+    if (state.species === name && state.mode === "trend") status("Computing the trend: map " + (done + 1) + " of " + ys.length + "…");
+    return api("/especies/" + encodeURIComponent(name) + "/mapa?anio=" + ys[done]).then(function (m) {
+      STEP = m.paso_grados || STEP; var x = ys[done] - ys[0];
+      m.puntos.forEach(function (p) {
+        var k = p[0] + "," + p[1], a = acc[k] || (acc[k] = [p[0], p[1], 0, 0, 0, 0, 0]);
+        a[2]++; a[3] += x; a[4] += p[2]; a[5] += x * x; a[6] += x * p[2];
+      });
+      done++; return next();
+    });
+  }
+  next().then(function () {
+    var n = ys.length, pts = [], abs = [];
+    Object.keys(acc).forEach(function (k) {
+      var a = acc[k]; if (a[2] < n) return;                       // only cells with a value in every sampled year
+      var sl = 10 * (n * a[6] - a[3] * a[4]) / (n * a[5] - a[3] * a[3]); pts.push([a[0], a[1], sl]); abs.push(Math.abs(sl));
+    });
+    abs.sort(function (p, q) { return p - q; });
+    trends[name] = { puntos: pts, scale: Math.max(0.01, abs[Math.floor(abs.length * 0.98)] || 0), years: ys, step: step };
+    refresh();
+  }).catch(function (e) { delete trends[name]; status("Trend not available: " + e.message); });
+  return null;
+}
+
+function layers() {                      // what the stack shows, top layer first (four at most)
+  var d = state.data; if (!d) return [];
+  if (state.mode === "time") {           // the chosen year on top, the three years before it below
+    var ys = d.anios, i = Math.max(ys.indexOf(state.year), Math.min(3, ys.length - 1));
+    return ys.slice(Math.max(0, i - 3), i + 1).reverse().map(function (y) { return { name: d.nombre, year: y, label: String(y), sel: y === state.year }; });
+  }
+  var L = state.list, j = 0; L.forEach(function (sp, k) { if (sp.nombre === d.nombre) j = k; });
+  var a = Math.max(0, Math.min(j - 1, L.length - 4));
+  return L.slice(a, a + 4).map(function (sp) { return { name: sp.nombre, year: state.year, label: sp.nombre, sel: sp.nombre === d.nombre, italic: true }; });
+}
+
+function rgb(h) { h = h.replace("#", ""); if (h.length === 3) h = h.replace(/./g, "$&$&"); return [0, 2, 4].map(function (i) { return parseInt(h.substr(i, 2), 16); }); }
+
+function paint(g, V, s, data, trend) {   // one map in a rectangle at the origin: land, sea cells, sightings
+  var fw = (V.lon1 - V.lon0) * V.k * s, fh = (V.lat1 - V.lat0) * s, cw = STEP * V.k * s, ch = STEP * s;
+  function X(lon) { return (lon - V.lon0) * V.k * s; }
+  function Y(lat) { return (V.lat1 - lat) * s; }
+  g.fillStyle = css("--land"); g.fillRect(0, 0, fw, fh);
+  if (!data) return;
+  g.save(); g.beginPath(); g.rect(0, 0, fw, fh); g.clip();
+  var lo = rgb(css("--pos")), mid = rgb(css("--mid")), hi = rgb(css("--neg"));
+  data.puntos.forEach(function (p) {
+    if (p[0] < V.lat0 - STEP || p[0] > V.lat1 + STEP || p[1] < V.lon0 - STEP || p[1] > V.lon1 + STEP) return;
+    var t = Math.max(-1, Math.min(1, trend ? p[2] / data.scale : Math.max(0, p[2]))), to = t < 0 ? lo : hi; t = Math.abs(t);
+    g.fillStyle = "rgb(" + mid.map(function (c, i) { return Math.round(c + (to[i] - c) * t); }).join(",") + ")";
+    g.fillRect(X(p[1]) - cw / 2, Y(p[0]) - ch / 2, cw + 0.6, ch + 0.6);
+  });
+  if (!trend) {                          // sightings: other years small and faint, the layer's year on top
+    g.fillStyle = css("--probe"); g.globalAlpha = 0.35;
+    data.avistamientos.forEach(function (a) { if (!a[3]) { g.beginPath(); g.arc(X(a[1]), Y(a[0]), 1.6, 0, 2 * Math.PI); g.fill(); } });
+    g.globalAlpha = 1;
+    data.avistamientos.forEach(function (a) {
+      if (a[3]) { g.beginPath(); g.arc(X(a[1]), Y(a[0]), Math.min(6, 2.5 + Math.log10(a[3] + 1) * 2), 0, 2 * Math.PI); g.fill(); }
+    });
+  }
+  g.restore();
+}
+
+function layerImage(L, m, V, s, dpr) {   // a stack layer painted once, then reused while nothing changes
+  var key = [L.name, L.year, state.view, Math.round(s * 100), dpr, css("--mid"), m ? 1 : 0].join("|");
+  if (images[key]) return images[key];
+  if (Object.keys(images).length > 24) images = {};
+  var cv = document.createElement("canvas");
+  cv.width = Math.max(1, Math.ceil((V.lon1 - V.lon0) * V.k * s * dpr)); cv.height = Math.max(1, Math.ceil((V.lat1 - V.lat0) * s * dpr));
+  var g = cv.getContext("2d"); g.scale(dpr, dpr); paint(g, V, s, m, false);
+  return (images[key] = cv);
+}
+
+function label(g, t, x, y, o) {
+  g.fillStyle = css(o.color || "--ink-2"); g.textAlign = o.align || "left"; g.textBaseline = "middle";
+  g.font = (o.italic ? "italic " : "") + (o.weight || "400") + " " + o.size + "px " + css(o.mono ? "--mono" : "--body"); g.fillText(t, x, y);
+}
 
 function draw() {
-  if (state.page !== "species") return;
+  if (state.page !== "species" || state.screen !== "viz") return;
   var dpr = window.devicePixelRatio || 1, w = canvas.clientWidth, h = canvas.clientHeight;
   if (!w || !h) return;
   canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
   var g = canvas.getContext("2d"); g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  var V = VIEWS[state.view], spanX = (V.lon1 - V.lon0) * V.k, spanY = V.lat1 - V.lat0, d = state.data, trend = state.mode === "trend";
+  var s, ox, oy, fw, fh;
+  geom = null; shown = null; hits = [];
+  if (!d) return;
+  canvas.style.cursor = trend || state.focus ? "crosshair" : "pointer";
 
-  var V = VIEWS[state.view], spanX = (V.lon1 - V.lon0) * V.k, spanY = V.lat1 - V.lat0;
-  var s = Math.min((w - 80) / spanX, (h - 80) / spanY), ox = (w - spanX * s) / 2, oy = (h - spanY * s) / 2;
-  geom = { s: s, k: V.k, ox: ox, oy: oy, lon0: V.lon0, lat1: V.lat1 };
-  var fw = spanX * s, fh = spanY * s;
-  g.fillStyle = css("--land"); g.fillRect(ox, oy, fw, fh);
-  g.save(); g.beginPath(); g.rect(ox, oy, fw, fh); g.clip();
-  if (state.map) {
-    var mid = rgb(css("--mid")), hi = rgb(css("--neg")), cw = STEP * V.k * s, ch = STEP * s;
-    state.map.puntos.forEach(function (p) {
-      if (p[0] < V.lat0 - STEP || p[0] > V.lat1 + STEP || p[1] < V.lon0 - STEP || p[1] > V.lon1 + STEP) return;
-      var t = Math.max(0, Math.min(1, p[2]));
-      g.fillStyle = "rgb(" + mid.map(function (c, i) { return Math.round(c + (hi[i] - c) * t); }).join(",") + ")";
-      g.fillRect(x(p[1]) - cw / 2, y(p[0]) - ch / 2, cw + 0.6, ch + 0.6);
-    });
-    // Sightings: other years small and faint, the chosen year on top.
-    g.fillStyle = css("--probe"); g.globalAlpha = 0.35;
-    state.map.avistamientos.forEach(function (a) { if (!a[3]) { g.beginPath(); g.arc(x(a[1]), y(a[0]), 1.6, 0, 2 * Math.PI); g.fill(); } });
-    g.globalAlpha = 1;
-    state.map.avistamientos.forEach(function (a) {
-      if (a[3]) { g.beginPath(); g.arc(x(a[1]), y(a[0]), Math.min(6, 2.5 + Math.log10(a[3] + 1) * 2), 0, 2 * Math.PI); g.fill(); }
-    });
+  if (trend || state.focus) {            // one flat map with degree labels
+    var data = trend ? trendFor(d.nombre) : need(d.nombre, state.year);
+    s = Math.min((w - 80) / spanX, (h - 80) / spanY); ox = (w - spanX * s) / 2; oy = (h - spanY * s) / 2; fw = spanX * s; fh = spanY * s;
+    geom = { s: s, k: V.k, ox: ox, oy: oy, lon0: V.lon0, lat1: V.lat1 }; shown = data && { data: data, trend: trend };
+    g.save(); g.translate(ox, oy); paint(g, V, s, data, trend); g.restore();
+    g.strokeStyle = css("--ink-2"); g.lineWidth = 0.8; g.strokeRect(ox, oy, fw, fh);
+    var lon, lat, ns = function (v, a, b) { return Math.abs(v) + "°" + (v > 0 ? a : v < 0 ? b : ""); };
+    for (lon = Math.ceil(V.lon0 / V.lonStep) * V.lonStep; lon <= V.lon1; lon += V.lonStep)
+      label(g, ns(lon, "E", "W"), ox + (lon - V.lon0) * V.k * s, oy + fh + 12, { align: "center", size: 10, mono: true });
+    for (lat = Math.floor(V.lat1 / V.latStep) * V.latStep; lat >= V.lat0; lat -= V.latStep)
+      label(g, ns(lat, "N", "S"), ox - 6, oy + (V.lat1 - lat) * s, { align: "right", size: 10, mono: true });
+    if (data) status(""); else if (!trend) status("Loading the map…");
+    return;
   }
-  g.restore();
-  g.strokeStyle = css("--ink-2"); g.lineWidth = 0.8; g.strokeRect(ox, oy, fw, fh);
-  g.fillStyle = css("--ink-2"); g.font = "10px " + css("--mono"); g.textBaseline = "middle";
-  var lon, lat, ns = function (v, a, b) { return Math.abs(v) + "°" + (v > 0 ? a : v < 0 ? b : ""); };
-  g.textAlign = "center";
-  for (lon = Math.ceil(V.lon0 / V.lonStep) * V.lonStep; lon <= V.lon1; lon += V.lonStep) g.fillText(ns(lon, "E", "W"), x(lon), oy + fh + 12);
-  g.textAlign = "right";
-  for (lat = Math.floor(V.lat1 / V.latStep) * V.latStep; lat >= V.lat0; lat -= V.latStep) g.fillText(ns(lat, "N", "S"), ox - 6, y(lat));
+
+  // Stack: every layer is a flat map slanted with the ISO vectors. Lower layers first, so the top one is in front.
+  var Ls = layers(), gap = h / 4.6, unitW = spanX * ISO.ux - spanY * ISO.vx, missing = 0, i;
+  s = Math.max(0.5, Math.min((w - 28) / unitW, (gap - 46) / (spanY * ISO.vy)));
+  ox = (w - unitW * s) / 2 - spanY * ISO.vx * s; fw = spanX * s; fh = spanY * s;
+  function at(a, b, top) { return [ox + a * ISO.ux + b * ISO.vx, top + a * ISO.uy + b * ISO.vy]; }
+  for (i = Ls.length - 1; i >= 0; i--) {
+    var L = Ls[i], m = need(L.name, L.year), top = 0.5 * gap - 4 + i * gap; if (!m) missing++;
+    g.save(); g.transform(ISO.ux, ISO.uy, ISO.vx, ISO.vy, ox, top); g.drawImage(layerImage(L, m, V, s, dpr), 0, 0, fw, fh); g.restore();
+    var c = [at(0, 0, top), at(fw, 0, top), at(fw, fh, top), at(0, fh, top)];
+    g.beginPath(); c.forEach(function (p, k) { if (k) g.lineTo(p[0], p[1]); else g.moveTo(p[0], p[1]); }); g.closePath();
+    g.strokeStyle = css(L.sel ? "--ink" : "--ink-2"); g.lineWidth = L.sel ? 2 : 0.8; g.stroke();
+    label(g, L.label, c[3][0], c[3][1] + 30, { color: "--ink", weight: L.sel ? "500" : "400", size: 13, italic: L.italic });
+    if (m) label(g, m.seen + " sightings in " + L.year, c[1][0], c[1][1] - 30, { align: "right", size: 11.5, mono: true });
+    hits[i] = { L: L, top: top, fw: fw, fh: fh, ox: ox };
+  }
+  status(missing ? "Loading maps…" : "");
 }
-function x(lon) { return geom.ox + (lon - geom.lon0) * geom.k * geom.s; }
-function y(lat) { return geom.oy + (geom.lat1 - lat) * geom.s; }
-function rgb(h) { h = h.replace("#", ""); if (h.length === 3) h = h.replace(/./g, "$&$&"); return [0, 2, 4].map(function (i) { return parseInt(h.substr(i, 2), 16); }); }
+
+function refresh() {                     // legend and bottom bar follow the mode, then the map is drawn
+  var trend = state.mode === "trend", T = trends[state.species], land = '<span><span class="sw land"></span>land</span>';
+  $("sp-legend").innerHTML = trend
+    ? '<span>Habitat suitability: losing <span class="ramp div"></span> gaining</span>' +
+      (T && T.puntos ? "<span>range ±" + T.scale.toFixed(2) + " per decade · " + T.years[0] + "–" + T.years[T.years.length - 1] +
+        (T.step > 1 ? ", one year in every " + T.step : "") + "</span>" : "") + land
+    : '<span>Habitat suitability: 0 <span class="ramp"></span> 1</span>' +
+      '<span><span class="sp-dot"></span>sightings that year</span><span><span class="sp-dot faint"></span>other years</span>' + land;
+  $("sp-back").hidden = trend || !state.focus;
+  ["sp-prev", "sp-year", "sp-next"].forEach(function (id) { $(id).hidden = trend; });
+  $("sp-hint").textContent = trend || state.focus ? "Point at the map to read a place." : "Click a map to open it.";
+  draw();
+}
+
+canvas.addEventListener("click", function (ev) {     // stack: open the layer under the pointer
+  var r = canvas.getBoundingClientRect(), px = ev.clientX - r.left, py = ev.clientY - r.top, det = ISO.ux * ISO.vy - ISO.vx * ISO.uy, i, H, a, b;
+  for (i = 0; i < hits.length; i++) {                // top layer first: it is the one in front
+    H = hits[i]; a = ((px - H.ox) * ISO.vy - ISO.vx * (py - H.top)) / det; b = (ISO.ux * (py - H.top) - ISO.uy * (px - H.ox)) / det;
+    if (a < 0 || a > H.fw || b < 0 || b > H.fh) continue;
+    state.focus = true;
+    if (H.L.name !== state.species) show(H.L.name); else setYear(H.L.year);
+    return;
+  }
+});
 
 canvas.addEventListener("mousemove", function (ev) {
-  if (!state.map || !geom) return;
-  var r = canvas.getBoundingClientRect();
+  if (!shown || !geom) return;
+  var r = canvas.getBoundingClientRect(), D = shown.data;
   var lon = geom.lon0 + (ev.clientX - r.left - geom.ox) / (geom.k * geom.s);
   var lat = geom.lat1 - (ev.clientY - r.top - geom.oy) / geom.s;
+  if (!D.celda) {                        // "lat,lon" -> point, built on the first read-out
+    D.celda = {}; D.puntos.forEach(function (p) { D.celda[p[0] + "," + p[1]] = p; });
+    D.vistos = {}; (D.avistamientos || []).forEach(function (a) { D.vistos[a[0] + "," + a[1]] = a; });
+  }
   // Centre of the cell under the pointer, written like the backend writes it.
   var cLat = Math.floor(lat / STEP) * STEP + STEP / 2, cLon = Math.floor(lon / STEP) * STEP + STEP / 2;
-  var key = cLat + "," + cLon, p = state.map.celda[key], seen = state.map.vistos[key];
+  var key = cLat + "," + cLon, p = D.celda[key], seen = D.vistos[key];
   if (!p) { $("sp-cell").textContent = "No sea data here."; return; }
-  var ns = function (v, a, b) { return Math.abs(v).toFixed(1) + "°" + (v >= 0 ? a : b); };
-  var t = ns(p[0], "N", "S") + ", " + ns(p[1], "E", "W") + " · suitability " + p[2].toFixed(2) + " in " + state.year;
-  if (p[2] < state.map.umbral_idoneo && p[3] >= 0) t += " · limited by " + varName(state.map.limitantes[p[3]]).toLowerCase();
-  if (seen) t += " · " + seen[3] + " sightings that year, " + seen[2] + " in all years";
+  var ns = function (v, a, b) { return Math.abs(v).toFixed(1) + "°" + (v >= 0 ? a : b); }, t = ns(p[0], "N", "S") + ", " + ns(p[1], "E", "W");
+  if (shown.trend) t += " · suitability " + (p[2] > 0 ? "+" : p[2] < 0 ? "−" : "") + Math.abs(p[2]).toFixed(3) + " per decade";
+  else {
+    t += " · suitability " + p[2].toFixed(2) + " in " + state.year;
+    if (p[2] < D.umbral_idoneo && p[3] >= 0) t += " · limited by " + varName(D.limitantes[p[3]]).toLowerCase();
+    if (seen) t += " · " + seen[3] + " sightings that year, " + seen[2] + " in all years";
+  }
   $("sp-cell").textContent = t;
 });
 
@@ -278,6 +415,7 @@ $("sp-find").addEventListener("change", function (ev) {
 $("sp-year").addEventListener("change", function (ev) { setYear(Number(ev.target.value)); });
 $("sp-prev").addEventListener("click", function () { setYear(state.year - 1); });
 $("sp-next").addEventListener("click", function () { setYear(state.year + 1); });
+$("sp-back").addEventListener("click", function () { state.focus = false; refresh(); });
 function setView(v) { state.view = v; $("sp-view").value = v; $("sp-region").textContent = VIEWS[v].name; draw(); }
 $("sp-view").addEventListener("change", function (ev) { setView(ev.target.value); });
 setView(state.view);

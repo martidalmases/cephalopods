@@ -11,6 +11,8 @@
 #sp-row .stage canvas{position:absolute;inset:0;width:100%;height:100%;display:block;cursor:crosshair}
 #sp-row .loading{pointer-events:none;text-align:center;padding:0 24px}
 #sp-row .legend .ramp{background:linear-gradient(90deg,var(--mid),var(--neg))}
+#sp-row .legend .ramp.div{background:linear-gradient(90deg,var(--pos),var(--mid),var(--neg))}
+.stackbar #sp-back{margin-right:8px}
 .sp-dot{display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--probe);vertical-align:middle;margin-right:6px}
 .sp-dot.faint{width:5px;height:5px;opacity:.4}
 
