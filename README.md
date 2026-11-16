@@ -1,12 +1,33 @@
-# The Nautilus Engine
+<p align="center">
+  <img src="trend-detective/logo.png" alt="Nautilus logo" width="120">
+</p>
 
-**Is the Mediterranean turning tropical?** We follow the sea since 1980 in NASA data, test which
-changes are real trends and not noise, and map what they mean for the species that live in it.
+<h1 align="center">The Nautilus Engine</h1>
 
-NASA Space Apps Challenge 2026 · Barcelona · challenge
-[*Be an Earth System Trend Detective!*](https://www.spaceappschallenge.org/)
+<p align="center">
+  <b>Is the Mediterranean turning tropical?</b><br>
+  We follow the sea since 1980 in NASA data, test which changes are real trends and not noise,
+  and map what they mean for the species that live in it.
+</p>
 
-**Live site: <https://trend.cooking>**
+<p align="center">
+  <a href="https://trend.cooking"><img src="https://img.shields.io/badge/%E2%96%B6%20OPEN%20THE%20LIVE%20SITE-trend.cooking-0e6f6a?style=for-the-badge" alt="Open the live site: trend.cooking" height="44"></a>
+</p>
+
+<h3 align="center"><a href="https://trend.cooking">https://trend.cooking</a></h3>
+
+<p align="center">
+  NASA Space Apps Challenge 2026 · Barcelona · challenge
+  <a href="https://www.spaceappschallenge.org/"><i>Be an Earth System Trend Detective!</i></a>
+</p>
+
+<p align="center">
+  <a href="https://trend.cooking"><img src="docs/screenshots/home.jpg" alt="Start page: Mediterranean sea surface temperature stripes, 1982 to 2025, rising 0.37 °C per decade" width="900"></a>
+</p>
+
+| Variables: maps stacked by year | Trend map: where the Mediterranean warms | Species: habitat and sightings by year |
+|---|---|---|
+| [![World ocean sea surface temperature, maps stacked by year](docs/screenshots/variables.jpg)](https://trend.cooking/explore.html) | [![Trend of Mediterranean sea surface temperature per decade, every cell significant](docs/screenshots/trend.jpg)](https://trend.cooking/explore.html?datos=mediterraneo-1980) | [![Pterois miles: habitat suitability maps 2022 to 2025 with sightings, and its indicators](docs/screenshots/species.jpg)](https://trend.cooking/explore.html#species) |
 
 ---
 
