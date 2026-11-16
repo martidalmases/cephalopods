@@ -68,10 +68,11 @@ REMUESTREOS = 50             # submuestras al igualar el tamaño de las ventanas
 # Los meses anómalamente cálidos sólo cuentan en contra cuando hay MÁS de los que la especie ha
 # soportado: tener pocos nunca hace peor un sitio. Las demás variables limitan por los dos lados.
 LADO = {"mhw_months": "superior"}
+INDICE = ["sst_winter_min", "sst_summer_max", "mhw_months", "chl"]   # variables of the suitability index
 DISTANCIA_CELDAS = 2         # avistamiento en tierra: celda de mar a esta distancia como mucho
 DIAS_REFRESCO_OBIS = 90
 KM_POR_GRADO = 111.195
-VERSION_CALCULO = 1          # se sube al cambiar el método: obliga a recalcular lo guardado
+VERSION_CALCULO = 2          # se sube al cambiar el método: obliga a recalcular lo guardado
 
 
 class ErrorEspecie(Exception):
@@ -204,9 +205,11 @@ def calcular(nombre: str, avist: np.ndarray, extra: dict | None = None) -> dict:
     meta = habitat.leer_meta()
     if not meta or len(meta["anios"]["sst_winter_min"]) < tendencias.MINIMO:
         raise ErrorEspecie("No hay almacén de hábitat: ejecuta antes `python habitat.py`")
+    # Everything from the first year with the four variables (chlorophyll, MODIS-Aqua: 2003).
     anios = [a for a in meta["anios"]["sst_winter_min"]
-             if a in meta["anios"]["sst_summer_max"] and a in meta["anios"]["mhw_months"]]
-    anios_chl = [a for a in meta["anios"]["chl"] if a in anios]
+             if a in meta["anios"]["sst_summer_max"] and a in meta["anios"]["mhw_months"] and a in meta["anios"]["chl"]]
+    if len(anios) < tendencias.MINIMO:
+        raise ErrorEspecie("No hay almacén de hábitat: ejecuta antes `python habitat.py`")
     mar = habitat.mar()
     rng = np.random.default_rng(12345)
 
@@ -248,7 +251,8 @@ def calcular(nombre: str, avist: np.ndarray, extra: dict | None = None) -> dict:
     idoneidad = np.full((len(anios), n_celdas), np.inf, dtype="float32")
     limitante = np.full((len(anios), n_celdas), -1, dtype="int8")
     en_celdas = {}
-    for k, v in enumerate(habitat.TEMPERATURA):
+    indice = [v for v in INDICE if v in muestras]           # the four variables (chlorophyll if the species has enough)
+    for k, v in enumerate(indice):
         en_celdas[v] = habitat.caja(v, anios)[:, filas_m, cols_m]
         s = puntuacion(muestras[v], en_celdas[v], LADO.get(v, "ambos"))
         menor = s < idoneidad
@@ -257,11 +261,6 @@ def calcular(nombre: str, avist: np.ndarray, extra: dict | None = None) -> dict:
         idoneidad[np.isnan(s)] = np.nan
     limitante[np.isnan(idoneidad)] = -1
     idoneidad[np.isinf(idoneidad)] = np.nan
-    con_chl = None
-    if "chl" in muestras and len(anios_chl) >= tendencias.MINIMO:
-        k0 = anios.index(anios_chl[0])
-        s = puntuacion(muestras["chl"], habitat.caja("chl", anios_chl)[:, filas_m, cols_m], LADO.get("chl", "ambos"))
-        con_chl = np.minimum(idoneidad[k0:k0 + len(anios_chl)], s)          # NaN si falta cualquiera
 
     # 4a. Indicadores del mapa: superficie, centro y límite hacia el polo del hábitat idóneo.
     lat_c = g["lat"][filas_m]
@@ -347,7 +346,7 @@ def calcular(nombre: str, avist: np.ndarray, extra: dict | None = None) -> dict:
 
     # 5. Lo demás que dibuja la web.
     no_idonea = hay & ~idonea
-    cuenta_lim = {v: int((limitante[no_idonea] == k).sum()) for k, v in enumerate(habitat.TEMPERATURA)}
+    cuenta_lim = {v: int((limitante[no_idonea] == k).sum()) for k, v in enumerate(indice)}
     total_lim = max(1, sum(cuenta_lim.values()))
     # Presencias dentro de la caja del Mediterráneo (para pintarlas sobre el mapa).
     fila = g["ny"] - 1 - (pr["i"] - g["i0"])
@@ -372,12 +371,12 @@ def calcular(nombre: str, avist: np.ndarray, extra: dict | None = None) -> dict:
         "ocean_index": [int(a) * g["nx"] + int(b) for a, b in zip(filas_m, cols_m)],
         "anios": anios,
         "variables": [{"id": v, **{k: habitat.VARIABLES[v][k] for k in ("name", "unit", "decimals", "desde")},
-                       "en_indice": v in habitat.TEMPERATURA,
+                       "en_indice": v in indice,
                        "lado": LADO.get(v, "ambos")} for v in habitat.VARIABLES if v in nicho],
         "nicho": nicho, "perfil_anual": perfil_anual,
         "idoneidad": pct(idoneidad),
-        "limitante": [ents(f) for f in limitante], "limitantes": habitat.TEMPERATURA,
-        "idoneidad_chl": None if con_chl is None else {"anios": anios_chl, "valores": pct(con_chl)},
+        "limitante": [ents(f) for f in limitante], "limitantes": indice,
+        "idoneidad_chl": None,
         "tendencia_celdas": tendencia_celdas,
         "indicadores": indicadores, "observado": observado,
         "factores_limitantes_pct": {v: round(100 * n / total_lim, 1) for v, n in cuenta_lim.items() if n},

@@ -4,7 +4,7 @@
 
    What the backend sends for a species (GET /api/habitat/especies/<name>):
      - its environmental profile: percentiles of the four chosen variables at its sightings worldwide;
-     - habitat suitability (0 to 100) of every 0.25° Mediterranean sea cell, every year since 1980;
+     - habitat suitability (0 to 100) of every 0.25° Mediterranean sea cell, every year since 2003 (the four variables);
      - yearly indicators with their trend: suitable area, centre and poleward limit of the habitat,
        observed poleward limit, thermal tolerance. Same method as the rest of the site: Sen's slope,
        modified Mann-Kendall test, FDR adjustment.
@@ -48,7 +48,7 @@ function deg(v, pos, neg) { return Math.abs(v).toFixed(2) + "°" + (v >= 0 ? pos
 
 // screen: "viz" | "analysis"; mode: "time" (stack of years) | "species" (stack of species) | "trend" | "bi";
 // focus: one stack layer opened flat; layer: "temp" | "chl" (variables in the suitability).
-var state = { page: "trends", screen: "viz", mode: "time", focus: false, layer: "chl", species: null, year: null, data: null, list: [] };
+var state = { page: "trends", screen: "viz", mode: "time", focus: false, layer: "temp", species: null, year: null, data: null, list: [] };
 
 /* ---------------- DOM: page switch, button groups, sidebar, main view, panel ---------------- */
 var options = document.querySelector(".options");
@@ -69,10 +69,8 @@ function seg(id, label, items, on) {
   options.insertBefore(g, $("methods-link")); return g;
 }
 function press(g, v) { g.querySelectorAll("button").forEach(function (b) { b.setAttribute("aria-pressed", String(b.dataset.v === v)); }); }
-var spScreens = seg("sp-screens", "Screen", [["viz", "Visualisation"], ["analysis", "Analysis"]], setScreen);
 var spModes = seg("sp-modes", "Visualisation options", [["time", "Stack by time"], ["species", "Stack by species"],
   ["trend", "Trend map"]], setMode);
-function setScreen(v) { state.screen = v; state.focus = false; setPage(state.page); }
 function setMode(v) { state.mode = v; state.focus = false; refresh(); }
 
 var trendSide = document.querySelector(".side .side-body");
@@ -85,13 +83,10 @@ side.innerHTML =
   'role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="sp-suggest" aria-label="Scientific name">' +
   '<ul id="sp-suggest" role="listbox" hidden></ul></div>' +
   '<p class="fact dim">Names and record counts from OBIS. Computed on first request, then stored.</p></section>' +
-  '<section id="sp-layer-box"><h2>Variables in the map</h2><span class="seg small" id="sp-layer" role="group" aria-label="Variables in the map">' +
-  '<button type="button" data-layer="chl" aria-pressed="true">All four, 2003–</button><button type="button" data-layer="temp" aria-pressed="false">Temperature, 1980–</button></span>' +
-  '<p class="fact dim" id="sp-layer-note">&nbsp;</p></section>' +
-  '<section><h2>What is this?</h2><p class="fact dim">Every sighting of the species in the world (OBIS, since 1980) is matched to the sea conditions of its place and year. ' +
+  '<section><h2>What is this?</h2><p class="fact dim">Every sighting of the species in the world (OBIS, since 2003) is matched to the sea conditions of its place and year. ' +
   'That gives its environmental profile: the range of conditions where it lives. Habitat suitability (0 to 1) says how close each place of the Mediterranean, each year, ' +
   'is to that profile. It is a statistical match with four variables, not proof that the species is there.</p>' +
-  '<p class="fact dim side-links"><a href="index.html">Start page</a> · <a href="method.html">How we chose the four variables</a></p></section>';
+  '<p class="fact dim side-links"><a href="index.html">Start page</a> · <a href="method.html">How we chose the four variables</a> · <a href="https://github.com/martidalmases/cephalopods">Code on GitHub</a></p></section>';
 trendSide.parentNode.appendChild(side);
 
 var trendRow = $("row");
@@ -107,15 +102,14 @@ row.innerHTML =
   '<span class="fact dim" id="sp-hint"></span></div></main>' +
   '<aside class="panel" aria-label="Species details"><div class="sp-panel">' +
   '<div><div class="panel-head"><h2 id="sp-title">&nbsp;</h2></div><p class="fact dim" id="sp-sub">&nbsp;</p></div>' +
-  '<section><h2>Suitable area by year</h2><div class="sp-bars" id="sp-bars"></div><div class="sp-years" id="sp-years"></div>' +
-  '<p class="verdict" id="sp-area">&nbsp;</p></section>' +
+  '<section><h2>Suitable area by year</h2><div id="sp-areachart"></div></section>' +
   '<section><h2>Where the suitable habitat is</h2><div id="sp-model"></div></section>' +
   '<section><h2>Thermal tolerance</h2><p class="note" id="sp-tol-note"></p><div id="sp-tol"></div></section>' +
   '<section id="sp-obs-box"><h2>Observed poleward limit</h2><div id="sp-obs"></div></section>' +
   '<section><h2>What limits its habitat</h2><ul class="sp-limits" id="sp-limits"></ul></section>' +
   '<section><h2>Conditions where it is seen</h2><table class="allvars"><thead><tr><th>Variable</th><th>Typical range</th><th>Median</th></tr></thead><tbody id="sp-niche"></tbody></table>' +
-  '<p class="note">Typical range: 5th to 95th percentile of the conditions at its sightings, worldwide. Variables marked * cover every year since 1980 and make the yearly suitability; ' +
-  'chlorophyll starts in 2003 (satellite) and is a separate layer. <a href="?datos=mediterraneo-1982">See the trends of these variables</a>.</p></section>' +
+  '<p class="note">Typical range: 5th to 95th percentile of the conditions at its sightings, worldwide. The four variables marked * make the yearly suitability, 2003 to today ' +
+  '(chlorophyll is measured by satellite from 2003). <a href="?datos=mediterraneo-1980">See the trends of these variables</a>.</p></section>' +
   '<section><h2>Where it is seen in the world</h2><canvas id="sp-world" aria-label="World map of the sightings used"></canvas><p class="note" id="sp-world-note"></p></section>' +
   '<section><h2>Place</h2><p class="fact dim sp-cell" id="sp-cell">Open a map and point at it to read a place.</p></section>' +
   '<section><p class="note" id="sp-method"></p></section>' +
@@ -131,7 +125,7 @@ function setPage(p) {
   trendRow.hidden = sp; trendSide.hidden = sp; $("screens").hidden = sp;
   var analysis = document.querySelector('#screens [data-screen="analysis"]').getAttribute("aria-pressed") === "true";
   $("modes").hidden = sp || analysis; if ($("amodes")) $("amodes").hidden = sp || !analysis;
-  spScreens.hidden = !sp; spModes.hidden = !sp || state.screen === "analysis";
+  spModes.hidden = !sp;
   row.hidden = !sp; side.hidden = !sp;
   if (history.replaceState) history.replaceState(null, "", sp ? "#species" : location.pathname + location.search);
   if (sp && !state.list.length) start(); else if (sp) refresh();
@@ -195,7 +189,7 @@ function show(name) {
     var years = layerYears(d);
     if (!state.year || years.indexOf(state.year) < 0) state.year = years[years.length - 1];
     loading = null; status(""); panel(); refresh(); return loadList(d.nombre);
-  }).catch(function (e) { if (state.species === name) { loading = null; status("Could not compute " + name, e.message.replace(/no está en OBIS/, "is not in OBIS. Check the spelling of the scientific name.")); } });
+  }).catch(function (e) { if (state.species === name) { loading = null; status("Could not map " + name, english(e.message)); } });
 }
 
 function prepare(d) {                          // lookups used by the maps
@@ -217,6 +211,19 @@ function prepare(d) {                          // lookups used by the maps
 // A card over the map: title, details and, while waiting, a moving bar with the seconds spent. The backend
 // does not report progress for one species, so the bar shows activity, not a percentage.
 var waitTimer = 0, waitKey = "", loading = null;
+function english(m) {                      // the backend's messages are in Spanish
+  var rules = [
+    [/'(.+)' no está en OBIS/, "$1 is not in OBIS, the species database. Check the spelling of the scientific name."],
+    [/'(.+)' tiene (\d+) presencias con datos desde (\d+): hacen falta al menos (\d+)/, "$1 has only $2 sightings with sea data since $3 (one per place and year). At least $4 are needed to describe where it lives."],
+    [/'(.+)' tiene muy pocos avistamientos.*/, "$1 has too few sightings to describe where it lives."],
+    [/'(.+)' no tiene avistamientos en celdas.*/, "$1 has no sightings in places with sea data."],
+    [/OBIS no responde.*/, "OBIS, the species database, is not answering right now. Please try again in a minute."],
+    [/.*(almacén de hábitat|datos ambientales).*/, "The sea data for the species are still being prepared. Please try again later."],
+    [/^HTTP 5\d\d$/, "The server had a problem. Please try again in a minute."]
+  ];
+  for (var i = 0; i < rules.length; i++) if (rules[i][0].test(m)) return m.replace(rules[i][0], rules[i][1]);
+  return m;
+}
 function status(title, text, busy) {
   var box = $("sp-status"), key = [title, text, busy].join("|");
   if (key === waitKey) return; waitKey = key;
@@ -239,17 +246,18 @@ function fit(cv) {
   var g = cv.getContext("2d"); g.setTransform(d, 0, 0, d, 0, 0); g.clearRect(0, 0, w, h); return { g: g, w: w, h: h };
 }
 function label(g, s, x, y, align, color) { g.font = "400 10px 'IBM Plex Mono',monospace"; g.fillStyle = color || css("--ink-2"); g.textAlign = align || "left"; g.textBaseline = "middle"; g.fillText(s, x, y); }
-function seriesChart(cv, xs, ys, slopeDecade, decimals) {      // points, line and the Sen line
+function axisNum(v, decimals) { return Math.abs(v) >= 1e4 ? Math.round(v / 1000).toLocaleString("en-GB") + "k" : v.toLocaleString("en-GB", { maximumFractionDigits: decimals }); }
+function seriesChart(cv, xs, ys, slopeDecade, decimals, dots) {      // points, line (unless dots) and the Sen line
   var f = fit(cv), g = f.g; if (f.w < 60) return;
   var L = 52, R = 8, T = 6, B = 16, vals = ys.filter(has); if (!vals.length) return;
   var lo = Math.min.apply(null, vals), hi = Math.max.apply(null, vals), pad = (hi - lo) * 0.12 || 1; lo -= pad; hi += pad;
   var x0 = xs[0], x1 = xs[xs.length - 1], X = function (x) { return L + (f.w - L - R) * (x - x0) / ((x1 - x0) || 1); }, Y = function (v) { return T + (f.h - T - B) * (hi - v) / (hi - lo); };
-  [lo + pad, hi - pad].forEach(function (v) { g.beginPath(); g.moveTo(L, Y(v)); g.lineTo(f.w - R, Y(v)); g.strokeStyle = css("--rule"); g.lineWidth = 0.8; g.stroke(); label(g, v.toLocaleString("en-GB", { maximumFractionDigits: decimals }), L - 6, Y(v), "right"); });
+  [lo + pad, hi - pad].forEach(function (v) { g.beginPath(); g.moveTo(L, Y(v)); g.lineTo(f.w - R, Y(v)); g.strokeStyle = css("--rule"); g.lineWidth = 0.8; g.stroke(); label(g, axisNum(v, decimals), L - 6, Y(v), "right"); });
   label(g, String(Math.round(x0)), L, f.h - 6, "left"); label(g, String(Math.round(x1)), f.w - R, f.h - 6, "right");
   var ink = css("--ink"), prev = false;
-  g.beginPath(); ys.forEach(function (v, i) { if (!has(v)) { prev = false; return; } if (prev) g.lineTo(X(xs[i]), Y(v)); else g.moveTo(X(xs[i]), Y(v)); prev = true; });
-  g.strokeStyle = ink; g.lineWidth = 1.5; g.lineJoin = "round"; g.stroke();
-  ys.forEach(function (v, i) { if (!has(v)) return; g.beginPath(); g.arc(X(xs[i]), Y(v), 1.8, 0, 7); g.fillStyle = ink; g.fill(); });
+  if (!dots) { g.beginPath(); ys.forEach(function (v, i) { if (!has(v)) { prev = false; return; } if (prev) g.lineTo(X(xs[i]), Y(v)); else g.moveTo(X(xs[i]), Y(v)); prev = true; });
+    g.strokeStyle = ink; g.lineWidth = 1.5; g.lineJoin = "round"; g.stroke(); }
+  ys.forEach(function (v, i) { if (!has(v)) return; g.beginPath(); g.arc(X(xs[i]), Y(v), dots ? 2.6 : 1.8, 0, 7); g.fillStyle = ink; g.fill(); });
   if (!has(slopeDecade)) return;
   var b = slopeDecade / 10, mid = (x0 + x1) / 2, rest = []; ys.forEach(function (v, i) { if (has(v)) rest.push(v - b * (xs[i] - mid)); });
   var c = median(rest);                         // Sen line: the slope, through the median of the points
@@ -260,11 +268,11 @@ function verdict(ind, decimals) {
   var s = signed(ind.pendiente_decada, decimals) + " " + ind.unidad + " per decade";
   return (ind.significativa ? (ind.pendiente_decada > 0 ? "↑ " : "↓ ") + s + " · significant" : "No significant trend (" + s + ")") + " · " + pText(ind.p_adj) + " · n = " + ind.n;
 }
-function indicator(parent, ind, title, decimals, extra) {
+function indicator(parent, ind, title, decimals, extra, dots) {
   var div = el("div", "mini"), cv = document.createElement("canvas");
   div.appendChild(el("h3", "", title)); div.appendChild(cv); div.appendChild(el("p", "", verdict(ind, decimals)));
   if (extra) div.appendChild(el("p", "sp-extra", extra));
-  parent.appendChild(div); seriesChart(cv, ind.anios, ind.serie, ind.pendiente_decada, decimals);
+  parent.appendChild(div); seriesChart(cv, ind.anios, ind.serie, ind.pendiente_decada, decimals, dots);
 }
 
 /* ---------------- panel ---------------- */
@@ -276,9 +284,8 @@ function panel() {
   $("sp-sub").textContent = [commonName(d), d.presencias.toLocaleString("en-GB") + " presences (cell and year) from " + d.registros.toLocaleString("en-GB") + " OBIS records",
     "seen from " + deg(d.latitud_presencias[0], "N", "S") + " to " + deg(d.latitud_presencias[1], "N", "S"), "updated " + new Date(d.calculado).toLocaleDateString()].filter(Boolean).join(" · ");
 
-  $("sp-area").textContent = verdict(ind.area, 0);
-  var mid = yrs[Math.floor(yrs.length / 2)];
-  $("sp-years").innerHTML = "<span>" + yrs[0] + "</span><span>" + mid + "</span><span>" + yrs[yrs.length - 1] + "</span>";
+  var area = $("sp-areachart"); area.textContent = "";
+  indicator(area, ind.area, "Suitable area of the Mediterranean (km²), one dot per year", 0, null, true);
 
   var model = $("sp-model"); model.textContent = "";
   indicator(model, ind.centro, "Centre of the suitable habitat (latitude, °N)", 2);
@@ -315,27 +322,29 @@ function panel() {
   var tests = Object.keys(ind).length;
   $("sp-method").textContent = "Trends: Sen's slope (median of the slopes between every pair of years) and the modified Mann-Kendall test, which allows for one year resembling the next. " +
     "The p-values of the " + tests + " indicators of this species are adjusted together (Benjamini-Hochberg), and so are those of the " + d.ocean_index.length.toLocaleString("en-GB") + " cells of the trend map. Significant means adjusted p < " + ALPHA + ".";
-  $("sp-layer-box").hidden = !d.idoneidad_chl;
-  world(); bars();
+  world();
 }
 function varName(id) { var v = state.data.variables.filter(function (x) { return x.id === id; })[0]; return v ? v.name : id; }
 
-function bars() {
-  if (!state.data) return;
-  var a = state.data.indicadores.area, years = a.anios, max = Math.max.apply(null, a.serie.filter(has).concat([1])), yearShown = !flatKind() || flatKind() === "suit";
-  var box = $("sp-bars"); box.innerHTML = ""; box.style.gridTemplateColumns = "repeat(" + years.length + ",1fr)";
-  years.forEach(function (y, i) {
-    var v = a.serie[i] || 0, b = el("div"); b.style.height = Math.max(2, 100 * v / max) + "%";
-    b.title = y + ": " + Math.round(v).toLocaleString("en-GB") + " km² suitable (" + a.pct_del_mar[i] + " % of the sea)"; if (y === state.year && yearShown) b.className = "on";
-    b.addEventListener("click", function () { state.screen = "viz"; state.mode = "time"; if (layerYears(state.data).indexOf(y) < 0) state.layer = "temp"; state.focus = true; spModes.hidden = false; setYear(y); });
-    box.appendChild(b);
-  });
+// Land for the world map: the 2° sea cells of the Variables world set (everything else is land).
+var landMask = null;
+function loadLand() {
+  if (landMask) return;
+  landMask = api("/trends/mundo-1980/meta.json").then(function (m) {
+    var sea = new Uint8Array(m.region.nx * m.region.ny); m.ocean_index.forEach(function (f) { sea[f] = 1; });
+    landMask = { r: m.region, sea: sea }; if (state.data) world();
+  }).catch(function () { landMask = null; });
 }
-
 function world() {                               // where the profile comes from: sightings in 2° cells
   var d = state.data, cv = $("sp-world"), f = fit(cv), g = f.g; if (f.w < 40) return;
   g.fillStyle = css("--paper"); g.fillRect(0, 0, f.w, f.h);
   var X = function (lon) { return (lon + 180) / 360 * f.w; }, Y = function (lat) { return (90 - lat) / 180 * f.h; }, r = d.region;
+  loadLand();
+  if (landMask && landMask.sea) {                // land cells, drawn under the sightings
+    var M = landMask.r, cw = M.cell_deg / 360 * f.w + 0.5, ch = M.cell_deg / 180 * f.h + 0.5, k;
+    g.fillStyle = css("--land");
+    for (k = 0; k < M.nx * M.ny; k++) if (!landMask.sea[k]) g.fillRect(X(M.lon_west + (k % M.nx) * M.cell_deg), Y(M.lat_north - Math.floor(k / M.nx) * M.cell_deg), cw, ch);
+  }
   g.fillStyle = css("--probe");
   d.mundo.forEach(function (p) { g.globalAlpha = Math.min(1, 0.45 + Math.log10(p[2] + 1) * 0.3); g.fillRect(X(p[1] - 1), Y(p[0] + 1), Math.max(1.5, f.w / 180), Math.max(1.5, f.h / 90)); });
   g.globalAlpha = 1; g.strokeStyle = css("--ink"); g.lineWidth = 1;
@@ -398,7 +407,7 @@ function bivFor(d) {                     // per cell classes of the combined cha
     cell.forEach(function (c, k) { if (c) sea[k] = c.index < i1 ? 0 : c.index < i2 ? 1 : 2; });
     d.biv = { hab: hab, sea: sea, cell: cell, cuts: [i1, i2], period: [env.years[0], env.years[env.years.length - 1]] };
     refresh();
-  }).catch(function (e) { delete d.biv; status("Analysis not available", e.message); });
+  }).catch(function (e) { delete d.biv; status("Analysis not available", english(e.message)); });
   return null;
 }
 
@@ -408,17 +417,14 @@ function flatKind() {                    // null: the stack; else what the flat 
 }
 function refresh() {
   if (state.page !== "species") return;
-  press(spScreens, state.screen); press(spModes, state.mode); spModes.hidden = state.screen === "analysis";
+  press(spModes, state.mode);
   var d = state.data, kind = flatKind();
   if (!d) { draw(); return; }
   var years = layerYears(d), sel = $("sp-year");
   if (years.indexOf(state.year) < 0) state.year = years[years.length - 1];
   sel.innerHTML = years.slice().reverse().map(function (y) { return '<option value="' + y + '">' + y + " · seen in " + (d.seenYear[y] || 0) + " cells</option>"; }).join("");
   sel.value = state.year;
-  document.querySelectorAll("#sp-layer button").forEach(function (b) { b.setAttribute("aria-pressed", String(b.dataset.layer === state.layer)); });
   $("sp-period").textContent = "Yearly results " + years[0] + " to " + years[years.length - 1] + " · " + d.region.cell_deg + "° cells";
-  $("sp-layer-note").textContent = state.layer === "chl" ? "Temperature and chlorophyll together, " + years[0] + " to " + years[years.length - 1] + ". Trend maps always use the temperature index."
-    : "Coldest month, hottest month and unusually hot months, " + d.anios[0] + " to " + d.anios[d.anios.length - 1] + ".";
   var L = $("sp-legend"), land = '<span><span class="sw land"></span>land</span>';
   if (kind === "biv") {
     var B = d.biv && d.biv.hab ? d.biv : null, rows = ["gaining", "stable", "losing"].map(function (t, r) {
@@ -441,7 +447,7 @@ function refresh() {
   ["sp-prev", "sp-year", "sp-next"].forEach(function (id) { $(id).hidden = !yearBar; });
   $("sp-prev").disabled = state.year <= years[0]; $("sp-next").disabled = state.year >= years[years.length - 1];
   $("sp-hint").textContent = kind ? "Point at the map to read a place." : "Scroll to move. Click a map to open it.";
-  bars(); draw();
+  draw();
 }
 
 /* ---------------- maps ---------------- */
@@ -669,9 +675,6 @@ $("sp-year").addEventListener("change", function (ev) { setYear(Number(ev.target
 $("sp-prev").addEventListener("click", function () { setYear(state.year - 1); });
 $("sp-next").addEventListener("click", function () { setYear(state.year + 1); });
 $("sp-back").addEventListener("click", function () { state.focus = false; refresh(); });
-document.querySelectorAll("#sp-layer button").forEach(function (b) { b.addEventListener("click", function () {
-  state.layer = b.dataset.layer; if (state.mode === "trend" || state.mode === "bi") state.mode = "time"; refresh();
-}); });
 
 function start() {
   var wanted = new URLSearchParams(location.search).get("especie");
@@ -679,7 +682,7 @@ function start() {
     var first = wanted ? { nombre: wanted } : list.filter(function (sp) { return sp.nombre === "Pterois miles"; })[0] || list[0];
     if (first) show(first.nombre);
     else status("No species stored yet", "Type a scientific name on the left.");
-  }).catch(function (e) { status("The species service is not available right now", e.message); });
+  }).catch(function (e) { status("The species service is not available right now", english(e.message)); });
 }
 
 /* ---------------- Variables page: choose the data set (region + period) ---------------- */
